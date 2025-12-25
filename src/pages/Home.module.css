@@ -1,0 +1,36 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content {
+  padding: 2rem;
+}
+
+.logoContainer {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(135deg, #fc4c02 0%, #ff6b35 100%);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 32px rgba(252, 76, 2, 0.3);
+}
+
+.logo {
+  width: 48px;
+  height: 48px;
+  color: white;
+}
+
+.error {
+  max-width: 400px;
+}
+
+.disclaimer {
+  max-width: 300px;
+}
+

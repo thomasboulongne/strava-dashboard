@@ -1,0 +1,16 @@
+.stravaButton {
+  background-color: #fc4c02;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stravaButton:hover {
+  background-color: #e34402;
+}
+
+.stravaLogo {
+  flex-shrink: 0;
+}
+

@@ -1,0 +1,35 @@
+.page {
+  min-height: 100vh;
+}
+
+.header {
+  border-bottom: 1px solid var(--gray-a5);
+  background: var(--color-background);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.container {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.loading {
+  min-height: 80vh;
+}
+
+.section {
+  background: var(--gray-a2);
+  border-radius: var(--radius-3);
+  padding: 1.5rem;
+}
+
+.placeholder {
+  background: var(--gray-a3);
+  border: 1px dashed var(--gray-a6);
+  border-radius: var(--radius-2);
+  padding: 2rem;
+  text-align: center;
+}
+
