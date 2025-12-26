@@ -20,6 +20,7 @@ import {
   PiHeartbeat,
   PiCaretLeft,
   PiCaretRight,
+  PiHouse,
 } from "react-icons/pi";
 import type { TimeSpan, MetricKey } from "../../lib/chart-utils";
 import styles from "./ActivityCharts.module.css";
@@ -42,6 +43,7 @@ interface ChartControlsProps {
 const ACTIVITY_TYPE_OPTIONS = [
   { value: "Run", label: "Run", icon: PiPersonSimpleRun },
   { value: "Ride", label: "Ride", icon: PiBicycle },
+  { value: "IndoorRide", label: "Indoor", icon: PiHouse },
   { value: "Swim", label: "Swim", icon: PiSwimmingPool },
   { value: "Walk", label: "Walk", icon: PiPersonSimpleWalk },
   { value: "Hike", label: "Hike", icon: PiMountains },
@@ -161,7 +163,9 @@ export function ChartControls({
               <Box
                 key={option.value}
                 onClick={() => toggleActivityType(option.value)}
-                className={`${styles.toggleCard} ${isSelected ? styles.toggleCardSelected : ""}`}
+                className={`${styles.toggleCard} ${
+                  isSelected ? styles.toggleCardSelected : ""
+                }`}
               >
                 <Flex direction="column" align="center" gap="1" p="3">
                   <Icon size={24} />
@@ -193,7 +197,9 @@ export function ChartControls({
               <Box
                 key={option.value}
                 onClick={() => toggleMetric(option.value)}
-                className={`${styles.toggleCard} ${isSelected ? styles.toggleCardSelected : ""}`}
+                className={`${styles.toggleCard} ${
+                  isSelected ? styles.toggleCardSelected : ""
+                }`}
               >
                 <Flex direction="column" align="center" gap="1" p="3">
                   <Icon size={24} />
@@ -209,4 +215,3 @@ export function ChartControls({
     </Flex>
   );
 }
-

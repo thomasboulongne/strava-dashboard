@@ -3,6 +3,34 @@ import type { Activity, ActivityType } from "./strava-types";
 // Time span options
 export type TimeSpan = "7d" | "30d" | "90d" | "ytd" | "all";
 
+// Detect if a ride is an indoor ride (trainer, no GPS)
+export function isIndoorRide(activity: Activity): boolean {
+  // Already a virtual ride - handled separately
+  if (activity.type === "VirtualRide") return false;
+
+  // Only check for ride-type activities
+  const rideTypes: ActivityType[] = ["Ride", "EBikeRide"];
+  if (!rideTypes.includes(activity.type)) return false;
+
+  // Check for indoor indicators:
+  // 1. Trainer flag is set
+  // 2. No GPS coordinates (start_latlng is null)
+  // 3. No map polyline
+  const hasTrainerFlag = activity.trainer === true;
+  const noGps = activity.start_latlng === null;
+  const noPolyline = !activity.map?.summary_polyline;
+
+  return hasTrainerFlag || (noGps && noPolyline);
+}
+
+// Get the effective sport type for charting (distinguishes indoor rides)
+export function getEffectiveSportType(activity: Activity): string {
+  if (isIndoorRide(activity)) {
+    return "IndoorRide";
+  }
+  return activity.sport_type || activity.type;
+}
+
 // Metric types
 export type MetricKey =
   | "distance"
@@ -171,7 +199,10 @@ export function getDateRange(
   // Apply pagination offset
   const offset = page * daysInSpan;
   end.setDate(end.getDate() - offset);
-  start.setDate(end.getDate() - daysInSpan + 1);
+
+  // Create start from end to preserve month context
+  start = new Date(end);
+  start.setDate(start.getDate() - daysInSpan + 1);
 
   // Reset time to start/end of day
   start.setHours(0, 0, 0, 0);
@@ -187,14 +218,35 @@ export function filterActivitiesByType(
 ): Activity[] {
   if (selectedTypes.length === 0) return activities;
 
+  // Check if IndoorRide is selected (special handling)
+  const includeIndoorRide = selectedTypes.includes("IndoorRide");
+  // Check if Ride is selected (outdoor rides only when IndoorRide exists as option)
+  const includeOutdoorRide = selectedTypes.includes("Ride");
+
   const allowedTypes = new Set<ActivityType>();
   selectedTypes.forEach((group) => {
+    // Skip IndoorRide - handled specially
+    if (group === "IndoorRide") return;
     ACTIVITY_TYPE_GROUPS[group]?.types.forEach((type) =>
       allowedTypes.add(type)
     );
   });
 
-  return activities.filter((activity) => allowedTypes.has(activity.type));
+  return activities.filter((activity) => {
+    // Special handling for ride activities
+    if (isIndoorRide(activity)) {
+      return includeIndoorRide;
+    }
+
+    // For outdoor rides (Ride, VirtualRide, EBikeRide that are not indoor)
+    const rideTypes: ActivityType[] = ["Ride", "VirtualRide", "EBikeRide"];
+    if (rideTypes.includes(activity.type)) {
+      return includeOutdoorRide;
+    }
+
+    // For all other activity types, use the standard group matching
+    return allowedTypes.has(activity.type);
+  });
 }
 
 // Filter activities by date range
@@ -328,7 +380,7 @@ export function aggregateActivitiesByDate(
       activities: dayActivities.map((a) => ({
         id: a.id,
         name: a.name,
-        type: a.type,
+        type: getEffectiveSportType(a),
       })),
     };
 
@@ -382,14 +434,39 @@ export function formatMetricValue(value: number, metric: MetricKey): string {
 // Get unique activity types from activities
 export function getUniqueActivityTypeGroups(activities: Activity[]): string[] {
   const types = new Set<string>();
+  let hasIndoorRide = false;
+  let hasOutdoorRide = false;
 
   activities.forEach((activity) => {
+    // Check for indoor/outdoor rides specifically
+    if (isIndoorRide(activity)) {
+      hasIndoorRide = true;
+      return; // Don't add to regular Ride group
+    }
+
+    // Check if it's an outdoor ride
+    const rideTypes: ActivityType[] = ["Ride", "VirtualRide", "EBikeRide"];
+    if (rideTypes.includes(activity.type)) {
+      hasOutdoorRide = true;
+    }
+
+    // Add to regular groups
     Object.entries(ACTIVITY_TYPE_GROUPS).forEach(([group, config]) => {
       if (config.types.includes(activity.type)) {
         types.add(group);
       }
     });
   });
+
+  // Add IndoorRide if we have indoor rides
+  if (hasIndoorRide) {
+    types.add("IndoorRide");
+  }
+
+  // Only keep Ride if we have outdoor rides
+  if (!hasOutdoorRide) {
+    types.delete("Ride");
+  }
 
   return Array.from(types);
 }
@@ -477,7 +554,7 @@ export function bucketByWeekVolume(
     const point = weekMap.get(weekKey);
     if (!point) return;
 
-    const sportType = activity.sport_type || activity.type;
+    const sportType = getEffectiveSportType(activity);
     const hours = activity.moving_time / 3600;
     const km = activity.distance / 1000;
     const elev = activity.total_elevation_gain;
@@ -645,7 +722,7 @@ export function getDurationDistribution(
       buckets[bucketIndex].activities.push({
         id: activity.id,
         name: activity.name,
-        type: activity.type,
+        type: getEffectiveSportType(activity),
       });
     }
   });

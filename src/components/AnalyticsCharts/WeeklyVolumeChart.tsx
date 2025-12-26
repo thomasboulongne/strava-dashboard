@@ -18,6 +18,7 @@ import type { Activity } from "../../lib/strava-types";
 const SPORT_COLORS: Record<string, string> = {
   Ride: "#f97316",
   VirtualRide: "#fb923c",
+  IndoorRide: "#fbbf24", // amber/yellow for indoor trainer rides
   EBikeRide: "#fdba74",
   Run: "#22c55e",
   VirtualRun: "#4ade80",

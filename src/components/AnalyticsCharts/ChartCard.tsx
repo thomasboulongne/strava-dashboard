@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from "react";
-import { Spinner } from "@radix-ui/themes";
+import { Spinner, Text } from "@radix-ui/themes";
 import {
   type TimeSpan,
   getDateRange,
@@ -47,6 +47,13 @@ export function ChartCard({
 }: ChartCardProps) {
   const [timeSpan, setTimeSpan] = useState<TimeSpan>(defaultTimeSpan);
   const [userChangedTimeSpan, setUserChangedTimeSpan] = useState(false);
+
+  // Determine if we're loading more data for the selected timespan
+  const isLoadingMoreData =
+    userChangedTimeSpan &&
+    (timeSpan === "ytd" || timeSpan === "all") &&
+    hasNextPage &&
+    isFetchingNextPage;
 
   // Auto-fetch more activities when user manually selects YTD or All
   useEffect(() => {
@@ -120,6 +127,14 @@ export function ChartCard({
         ) : (
           <div className={styles.chartArea}>
             {children({ filteredActivities, startDate, endDate, timeSpan })}
+            {isLoadingMoreData && (
+              <div className={styles.loadingOverlay}>
+                <Spinner size="3" />
+                <Text size="2" color="gray" mt="2">
+                  Loading more activities...
+                </Text>
+              </div>
+            )}
           </div>
         )}
       </div>

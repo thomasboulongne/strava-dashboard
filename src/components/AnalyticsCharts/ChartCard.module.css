@@ -91,6 +91,29 @@
   color: var(--gray-10);
 }
 
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-a2);
+  backdrop-filter: blur(4px);
+  border-radius: var(--radius-2);
+  z-index: 10;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Tooltip styles */
 .tooltip {
   background: var(--gray-1);
@@ -218,11 +241,21 @@
   transform: scale(1.2);
 }
 
-.heatmapLevel0 { background: var(--gray-a3); }
-.heatmapLevel1 { background: var(--green-a4); }
-.heatmapLevel2 { background: var(--green-a6); }
-.heatmapLevel3 { background: var(--green-a8); }
-.heatmapLevel4 { background: var(--green-a10); }
+.heatmapLevel0 {
+  background: var(--gray-a3);
+}
+.heatmapLevel1 {
+  background: var(--green-a4);
+}
+.heatmapLevel2 {
+  background: var(--green-a6);
+}
+.heatmapLevel3 {
+  background: var(--green-a8);
+}
+.heatmapLevel4 {
+  background: var(--green-a10);
+}
 
 .heatmapMonthLabels {
   display: flex;
@@ -316,4 +349,3 @@
 .scatterDot:hover {
   r: 6;
 }
-
