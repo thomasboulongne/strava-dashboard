@@ -2,7 +2,9 @@
 
 import type { Athlete, AthleteStats, Activity } from "./strava-types";
 
-const API_BASE = "/api";
+// Use VITE_API_URL env var if set, otherwise default to relative /api path
+// This allows explicit configuration for different environments
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 class ApiError extends Error {
   status: number;
@@ -52,11 +54,16 @@ export async function getAthlete(): Promise<Athlete> {
   return fetchApi<Athlete>("/athlete");
 }
 
-export async function getAthleteStats(athleteId: number): Promise<AthleteStats> {
+export async function getAthleteStats(
+  athleteId: number
+): Promise<AthleteStats> {
   return fetchApi<AthleteStats>(`/stats?athleteId=${athleteId}`);
 }
 
-export async function getActivities(page = 1, perPage = 30): Promise<Activity[]> {
+export async function getActivities(
+  page = 1,
+  perPage = 30
+): Promise<Activity[]> {
   return fetchApi<Activity[]>(`/activities?page=${page}&per_page=${perPage}`);
 }
 

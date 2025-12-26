@@ -3,20 +3,21 @@ import {
   parseTokensFromCookies,
   refreshAccessToken,
   createTokenCookies,
+  handleCorsPreFlight,
+  jsonResponse,
 } from "./lib/strava.js";
 
 export default async function handler(request: Request, _context: Context) {
+  if (request.method === "OPTIONS") {
+    return handleCorsPreFlight();
+  }
+
   try {
     const cookieHeader = request.headers.get("cookie");
     const { refreshToken } = parseTokensFromCookies(cookieHeader);
 
     if (!refreshToken) {
-      return new Response(JSON.stringify({ error: "No refresh token" }), {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      return jsonResponse({ error: "No refresh token" }, 401);
     }
 
     const tokens = await refreshAccessToken(refreshToken);
@@ -26,21 +27,11 @@ export default async function handler(request: Request, _context: Context) {
       tokens.expires_at
     );
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": cookies.join(", "),
-      },
+    return jsonResponse({ success: true }, 200, {
+      "Set-Cookie": cookies.join(", "),
     });
   } catch (error) {
     console.error("Refresh error:", error);
-    return new Response(JSON.stringify({ error: "Token refresh failed" }), {
-      status: 401,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    return jsonResponse({ error: "Token refresh failed" }, 401);
   }
 }
-

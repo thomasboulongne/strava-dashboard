@@ -6,12 +6,49 @@ const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token";
 
 export const getClientId = () => process.env.STRAVA_CLIENT_ID!;
 export const getClientSecret = () => process.env.STRAVA_CLIENT_SECRET!;
-export const getSiteUrl = () => process.env.SITE_URL || "http://localhost:8888";
+
+// CORS headers for local development
+export function getCorsHeaders(): Record<string, string> {
+  // In development, allow localhost origins
+  const allowedOrigin = process.env.SITE_URL || "http://localhost:5173";
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+export function handleCorsPreFlight(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: getCorsHeaders(),
+  });
+}
+
+// Get the site URL - uses Netlify's built-in env vars in production
+export const getSiteUrl = () => {
+  // Explicit override takes priority
+  if (process.env.SITE_URL) {
+    return process.env.SITE_URL;
+  }
+  // Netlify deploy preview URL
+  if (process.env.DEPLOY_PRIME_URL) {
+    return process.env.DEPLOY_PRIME_URL;
+  }
+  // Netlify production URL
+  if (process.env.URL) {
+    return process.env.URL;
+  }
+  // Local development fallback
+  return "http://localhost:8888";
+};
 
 export function getAuthorizationUrl(): string {
   const params = new URLSearchParams({
     client_id: getClientId(),
-    redirect_uri: `${getSiteUrl()}/callback`,
+    redirect_uri: `${getSiteUrl()}/api/callback`,
     response_type: "code",
     scope: "read,activity:read_all,profile:read_all",
     approval_prompt: "auto",
@@ -94,9 +131,11 @@ export async function fetchFromStrava(
 }
 
 // Cookie helpers
-export function parseTokensFromCookies(
-  cookieHeader: string | null
-): { accessToken: string | null; refreshToken: string | null; expiresAt: number | null } {
+export function parseTokensFromCookies(cookieHeader: string | null): {
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresAt: number | null;
+} {
   if (!cookieHeader) {
     return { accessToken: null, refreshToken: null, expiresAt: null };
   }
@@ -111,7 +150,9 @@ export function parseTokensFromCookies(
   return {
     accessToken: cookies["strava_access_token"] || null,
     refreshToken: cookies["strava_refresh_token"] || null,
-    expiresAt: cookies["strava_expires_at"] ? parseInt(cookies["strava_expires_at"]) : null,
+    expiresAt: cookies["strava_expires_at"]
+      ? parseInt(cookies["strava_expires_at"])
+      : null,
   };
 }
 
@@ -126,7 +167,10 @@ export function createTokenCookies(
   const httpOnly = "; HttpOnly";
 
   // Access token expires when the Strava token expires
-  const accessTokenMaxAge = Math.max(0, expiresAt - Math.floor(Date.now() / 1000));
+  const accessTokenMaxAge = Math.max(
+    0,
+    expiresAt - Math.floor(Date.now() / 1000)
+  );
   // Refresh token lasts longer (30 days)
   const refreshTokenMaxAge = 30 * 24 * 60 * 60;
 
@@ -150,3 +194,95 @@ export function createLogoutCookies(): string[] {
   ];
 }
 
+// JSON response helper
+export function jsonResponse(
+  data: unknown,
+  status: number,
+  extraHeaders?: Record<string, string>
+): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...getCorsHeaders(),
+      ...extraHeaders,
+    },
+  });
+}
+
+// Authenticated endpoint handler type
+type AuthenticatedHandler = (
+  request: Request,
+  accessToken: string,
+  newCookies: string[] | null
+) => Promise<Response>;
+
+// Wrapper for authenticated Strava API endpoints
+export async function withAuth(
+  request: Request,
+  handler: AuthenticatedHandler
+): Promise<Response> {
+  // Handle CORS preflight
+  if (request.method === "OPTIONS") {
+    return handleCorsPreFlight();
+  }
+
+  try {
+    const cookieHeader = request.headers.get("cookie");
+    const {
+      accessToken: initialAccessToken,
+      refreshToken,
+      expiresAt,
+    } = parseTokensFromCookies(cookieHeader);
+
+    if (!initialAccessToken && !refreshToken) {
+      return jsonResponse({ error: "Not authenticated" }, 401);
+    }
+
+    let accessToken = initialAccessToken;
+    let newCookies: string[] | null = null;
+
+    // Check if token is expired or about to expire (within 5 minutes)
+    const now = Math.floor(Date.now() / 1000);
+    if (expiresAt && expiresAt - now < 300 && refreshToken) {
+      try {
+        const tokens = await refreshAccessToken(refreshToken);
+        accessToken = tokens.access_token;
+        newCookies = createTokenCookies(
+          tokens.access_token,
+          tokens.refresh_token,
+          tokens.expires_at
+        );
+      } catch {
+        return jsonResponse({ error: "Token refresh failed" }, 401);
+      }
+    }
+
+    if (!accessToken) {
+      return jsonResponse({ error: "No access token" }, 401);
+    }
+
+    return handler(request, accessToken, newCookies);
+  } catch (error) {
+    console.error("Auth wrapper error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+
+    if (message === "UNAUTHORIZED") {
+      return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    return jsonResponse({ error: "Request failed" }, 500);
+  }
+}
+
+// Helper to build response with optional refreshed cookies
+export function jsonResponseWithCookies(
+  data: unknown,
+  newCookies: string[] | null
+): Response {
+  const headers: Record<string, string> = {};
+  if (newCookies) {
+    headers["Set-Cookie"] = newCookies.join(", ");
+  }
+  return jsonResponse(data, 200, headers);
+}
