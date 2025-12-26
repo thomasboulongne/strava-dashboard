@@ -1,4 +1,3 @@
-# API redirects are in netlify.toml
-# SPA fallback for production (Vite handles this during development)
-/*    /index.html   200
+/api/*  /.netlify/functions/:splat  200
+/*      /index.html                  200
 
