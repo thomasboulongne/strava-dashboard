@@ -393,3 +393,536 @@ export function getUniqueActivityTypeGroups(activities: Activity[]): string[] {
 
   return Array.from(types);
 }
+
+// ============================================
+// Advanced Chart Utilities
+// ============================================
+
+// Get ISO week string (YYYY-WW) for a date
+export function getISOWeekKey(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  // Thursday in current week decides the year
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  // January 4 is always in week 1
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum = Math.round(
+    ((d.getTime() - week1.getTime()) / 86400000 -
+      3 +
+      ((week1.getDay() + 6) % 7)) /
+      7 +
+      1
+  );
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+}
+
+// Get the Monday of a given week
+export function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return d;
+}
+
+// Weekly volume data point for stacked bar chart
+export interface WeeklyVolumeDataPoint {
+  week: string;
+  weekLabel: string;
+  weekStart: string;
+  // Totals across all sports
+  totalTime: number; // hours
+  totalDistance: number; // km
+  totalElevation: number; // m
+  // Per-sport breakdown for stacking
+  bySport: Record<
+    string,
+    { time: number; distance: number; elevation: number }
+  >;
+}
+
+// Bucket activities by ISO week with volume aggregations
+export function bucketByWeekVolume(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date
+): WeeklyVolumeDataPoint[] {
+  const weekMap = new Map<string, WeeklyVolumeDataPoint>();
+
+  // Generate all weeks in range
+  const current = getWeekStart(startDate);
+  while (current <= endDate) {
+    const weekKey = getISOWeekKey(current);
+    const weekLabel = current.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    weekMap.set(weekKey, {
+      week: weekKey,
+      weekLabel,
+      weekStart: formatLocalDate(current),
+      totalTime: 0,
+      totalDistance: 0,
+      totalElevation: 0,
+      bySport: {},
+    });
+    current.setDate(current.getDate() + 7);
+  }
+
+  // Aggregate activities
+  activities.forEach((activity) => {
+    const date = new Date(activity.start_date_local);
+    const weekKey = getISOWeekKey(date);
+    const point = weekMap.get(weekKey);
+    if (!point) return;
+
+    const sportType = activity.sport_type || activity.type;
+    const hours = activity.moving_time / 3600;
+    const km = activity.distance / 1000;
+    const elev = activity.total_elevation_gain;
+
+    point.totalTime += hours;
+    point.totalDistance += km;
+    point.totalElevation += elev;
+
+    if (!point.bySport[sportType]) {
+      point.bySport[sportType] = { time: 0, distance: 0, elevation: 0 };
+    }
+    point.bySport[sportType].time += hours;
+    point.bySport[sportType].distance += km;
+    point.bySport[sportType].elevation += elev;
+  });
+
+  return Array.from(weekMap.values()).sort((a, b) =>
+    a.weekStart.localeCompare(b.weekStart)
+  );
+}
+
+// Daily activity data for heatmap
+export interface DailyActivityData {
+  date: string;
+  minutes: number;
+  intensityBin: 0 | 1 | 2 | 3 | 4; // 0=none, 1=1-30, 2=31-60, 3=61-120, 4=120+
+}
+
+// Bucket activities by day for heatmap
+export function bucketByDay(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date
+): DailyActivityData[] {
+  const dayMap = new Map<string, number>();
+
+  // Generate all days in range
+  const current = new Date(startDate);
+  current.setHours(12, 0, 0, 0);
+  while (current <= endDate) {
+    dayMap.set(formatLocalDate(current), 0);
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Sum moving time per day
+  activities.forEach((activity) => {
+    const dateKey = formatLocalDate(new Date(activity.start_date_local));
+    if (dayMap.has(dateKey)) {
+      dayMap.set(dateKey, dayMap.get(dateKey)! + activity.moving_time / 60);
+    }
+  });
+
+  return Array.from(dayMap.entries())
+    .map(([date, minutes]) => ({
+      date,
+      minutes,
+      intensityBin: getIntensityBin(minutes),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getIntensityBin(minutes: number): 0 | 1 | 2 | 3 | 4 {
+  if (minutes === 0) return 0;
+  if (minutes <= 30) return 1;
+  if (minutes <= 60) return 2;
+  if (minutes <= 120) return 3;
+  return 4;
+}
+
+// Weekly max ride data
+export interface WeeklyMaxRideData {
+  week: string;
+  weekLabel: string;
+  maxDurationHours: number;
+  maxActivity: { id: number; name: string; date: string } | null;
+}
+
+// Get weekly max ride duration
+export function getWeeklyMaxRides(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date
+): WeeklyMaxRideData[] {
+  const weekMap = new Map<string, WeeklyMaxRideData>();
+
+  // Generate all weeks
+  const current = getWeekStart(startDate);
+  while (current <= endDate) {
+    const weekKey = getISOWeekKey(current);
+    const weekLabel = current.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    weekMap.set(weekKey, {
+      week: weekKey,
+      weekLabel,
+      maxDurationHours: 0,
+      maxActivity: null,
+    });
+    current.setDate(current.getDate() + 7);
+  }
+
+  // Find max per week for Ride activities
+  const rideTypes = new Set(ACTIVITY_TYPE_GROUPS.Ride.types);
+  activities
+    .filter((a) => rideTypes.has(a.type))
+    .forEach((activity) => {
+      const date = new Date(activity.start_date_local);
+      const weekKey = getISOWeekKey(date);
+      const point = weekMap.get(weekKey);
+      if (!point) return;
+
+      const hours = activity.moving_time / 3600;
+      if (hours > point.maxDurationHours) {
+        point.maxDurationHours = hours;
+        point.maxActivity = {
+          id: activity.id,
+          name: activity.name,
+          date: activity.start_date_local,
+        };
+      }
+    });
+
+  return Array.from(weekMap.values()).sort((a, b) =>
+    a.week.localeCompare(b.week)
+  );
+}
+
+// Duration histogram buckets
+export const DURATION_BUCKETS = [
+  { min: 0, max: 30, label: "0-30" },
+  { min: 30, max: 60, label: "30-60" },
+  { min: 60, max: 90, label: "60-90" },
+  { min: 90, max: 120, label: "90-120" },
+  { min: 120, max: 180, label: "120-180" },
+  { min: 180, max: Infinity, label: "180+" },
+] as const;
+
+export interface DurationBucketData {
+  bucket: string;
+  count: number;
+  activities: ActivityInfo[];
+}
+
+// Get duration distribution for Ride activities
+export function getDurationDistribution(
+  activities: Activity[]
+): DurationBucketData[] {
+  const rideTypes = new Set(ACTIVITY_TYPE_GROUPS.Ride.types);
+  const rides = activities.filter((a) => rideTypes.has(a.type));
+
+  const buckets: DurationBucketData[] = DURATION_BUCKETS.map((b) => ({
+    bucket: b.label,
+    count: 0,
+    activities: [],
+  }));
+
+  rides.forEach((activity) => {
+    const minutes = activity.moving_time / 60;
+    const bucketIndex = DURATION_BUCKETS.findIndex(
+      (b) => minutes >= b.min && minutes < b.max
+    );
+    if (bucketIndex !== -1) {
+      buckets[bucketIndex].count++;
+      buckets[bucketIndex].activities.push({
+        id: activity.id,
+        name: activity.name,
+        type: activity.type,
+      });
+    }
+  });
+
+  return buckets;
+}
+
+// Pace/speed data point
+export interface SpeedDataPoint {
+  date: string;
+  activityId: number;
+  name: string;
+  speedKph: number;
+  durationMin: number;
+}
+
+// Get ride speeds over time
+export function getRideSpeeds(
+  activities: Activity[],
+  minDurationMinutes: number = 20
+): SpeedDataPoint[] {
+  const rideTypes = new Set(ACTIVITY_TYPE_GROUPS.Ride.types);
+
+  return activities
+    .filter(
+      (a) => rideTypes.has(a.type) && a.moving_time / 60 >= minDurationMinutes
+    )
+    .map((a) => ({
+      date: formatLocalDate(new Date(a.start_date_local)),
+      activityId: a.id,
+      name: a.name,
+      speedKph: a.distance / 1000 / (a.moving_time / 3600),
+      durationMin: a.moving_time / 60,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Compute rolling median for speed trend
+export function computeRollingMedian(
+  data: SpeedDataPoint[],
+  windowDays: number = 14
+): Array<{ date: string; medianSpeed: number }> {
+  if (data.length === 0) return [];
+
+  const result: Array<{ date: string; medianSpeed: number }> = [];
+  const windowMs = windowDays * 24 * 60 * 60 * 1000;
+
+  // Get unique dates
+  const uniqueDates = [...new Set(data.map((d) => d.date))].sort();
+
+  uniqueDates.forEach((dateStr) => {
+    const currentDate = new Date(dateStr + "T12:00:00").getTime();
+    const windowStart = currentDate - windowMs;
+
+    // Get all speeds in window
+    const windowSpeeds = data
+      .filter((d) => {
+        const dTime = new Date(d.date + "T12:00:00").getTime();
+        return dTime >= windowStart && dTime <= currentDate;
+      })
+      .map((d) => d.speedKph)
+      .sort((a, b) => a - b);
+
+    if (windowSpeeds.length > 0) {
+      const mid = Math.floor(windowSpeeds.length / 2);
+      const median =
+        windowSpeeds.length % 2 === 0
+          ? (windowSpeeds[mid - 1] + windowSpeeds[mid]) / 2
+          : windowSpeeds[mid];
+      result.push({ date: dateStr, medianSpeed: median });
+    }
+  });
+
+  return result;
+}
+
+// Climbing focus data
+export interface ClimbingFocusData {
+  week: string;
+  weekLabel: string;
+  totalElevation: number; // m
+  avgVerticalRate: number; // m/h
+  rideCount: number;
+}
+
+// Get climbing focus data
+export function getClimbingFocusData(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date
+): ClimbingFocusData[] {
+  const weekMap = new Map<
+    string,
+    { elev: number; totalTime: number; count: number }
+  >();
+
+  // Generate weeks
+  const current = getWeekStart(startDate);
+  while (current <= endDate) {
+    const weekKey = getISOWeekKey(current);
+    weekMap.set(weekKey, { elev: 0, totalTime: 0, count: 0 });
+    current.setDate(current.getDate() + 7);
+  }
+
+  // Aggregate rides
+  const rideTypes = new Set(ACTIVITY_TYPE_GROUPS.Ride.types);
+  activities
+    .filter((a) => rideTypes.has(a.type))
+    .forEach((activity) => {
+      const date = new Date(activity.start_date_local);
+      const weekKey = getISOWeekKey(date);
+      const data = weekMap.get(weekKey);
+      if (!data) return;
+
+      data.elev += activity.total_elevation_gain;
+      data.totalTime += activity.moving_time / 3600;
+      data.count++;
+    });
+
+  const result: ClimbingFocusData[] = [];
+  const weekCurrent = getWeekStart(startDate);
+  while (weekCurrent <= endDate) {
+    const weekKey = getISOWeekKey(weekCurrent);
+    const weekLabel = weekCurrent.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    const data = weekMap.get(weekKey)!;
+    result.push({
+      week: weekKey,
+      weekLabel,
+      totalElevation: data.elev,
+      avgVerticalRate: data.totalTime > 0 ? data.elev / data.totalTime : 0,
+      rideCount: data.count,
+    });
+    weekCurrent.setDate(weekCurrent.getDate() + 7);
+  }
+
+  return result;
+}
+
+// Acute/chronic load data
+export interface LoadDataPoint {
+  date: string;
+  dailyLoad: number;
+  acuteLoad: number; // 7-day sum
+  chronicLoad: number; // 28-day sum
+  rampRatio: number; // acute/chronic
+}
+
+// Sport weight factors for load calculation
+export const SPORT_WEIGHTS: Record<string, number> = {
+  Run: 1.2,
+  Ride: 1.0,
+  Swim: 0.8,
+  default: 1.0,
+};
+
+// Compute training load data
+export function computeTrainingLoad(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date
+): LoadDataPoint[] {
+  // Build daily load map
+  const dailyLoad = new Map<string, number>();
+
+  // Generate all days
+  const current = new Date(startDate);
+  current.setHours(12, 0, 0, 0);
+  while (current <= endDate) {
+    dailyLoad.set(formatLocalDate(current), 0);
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Sum weighted load per day
+  activities.forEach((activity) => {
+    const dateKey = formatLocalDate(new Date(activity.start_date_local));
+    if (!dailyLoad.has(dateKey)) return;
+
+    const sportGroup = Object.entries(ACTIVITY_TYPE_GROUPS).find(([, config]) =>
+      config.types.includes(activity.type)
+    )?.[0];
+    const weight =
+      SPORT_WEIGHTS[sportGroup || "default"] || SPORT_WEIGHTS.default;
+    const loadMinutes = (activity.moving_time / 60) * weight;
+
+    dailyLoad.set(dateKey, dailyLoad.get(dateKey)! + loadMinutes);
+  });
+
+  // Convert to sorted array
+  const sortedDays = Array.from(dailyLoad.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
+
+  // Compute rolling sums
+  const result: LoadDataPoint[] = [];
+
+  sortedDays.forEach(([date, load], index) => {
+    // Acute load (7 days)
+    let acuteSum = 0;
+    for (let i = Math.max(0, index - 6); i <= index; i++) {
+      acuteSum += sortedDays[i][1];
+    }
+
+    // Chronic load (28 days)
+    let chronicSum = 0;
+    for (let i = Math.max(0, index - 27); i <= index; i++) {
+      chronicSum += sortedDays[i][1];
+    }
+
+    // Normalize chronic to 7-day average for fair comparison
+    const chronicNormalized = (chronicSum / 28) * 7;
+
+    result.push({
+      date,
+      dailyLoad: load,
+      acuteLoad: acuteSum,
+      chronicLoad: chronicNormalized,
+      rampRatio: chronicNormalized > 0 ? acuteSum / chronicNormalized : 0,
+    });
+  });
+
+  return result;
+}
+
+// Location cluster data
+export interface LocationCluster {
+  cellKey: string;
+  lat: number;
+  lng: number;
+  count: number;
+  totalDistanceKm: number;
+  totalTimeHours: number;
+  activities: Array<{ id: number; name: string; date: string }>;
+}
+
+// Cluster activities by start location
+export function clusterByStartLocation(
+  activities: Activity[],
+  precision: number = 2
+): LocationCluster[] {
+  const clusterMap = new Map<string, LocationCluster>();
+
+  activities.forEach((activity) => {
+    if (!activity.start_latlng || activity.start_latlng.length !== 2) return;
+
+    const [lat, lng] = activity.start_latlng;
+    const roundedLat = Number(lat.toFixed(precision));
+    const roundedLng = Number(lng.toFixed(precision));
+    const cellKey = `${roundedLat},${roundedLng}`;
+
+    if (!clusterMap.has(cellKey)) {
+      clusterMap.set(cellKey, {
+        cellKey,
+        lat: roundedLat,
+        lng: roundedLng,
+        count: 0,
+        totalDistanceKm: 0,
+        totalTimeHours: 0,
+        activities: [],
+      });
+    }
+
+    const cluster = clusterMap.get(cellKey)!;
+    cluster.count++;
+    cluster.totalDistanceKm += activity.distance / 1000;
+    cluster.totalTimeHours += activity.moving_time / 3600;
+    cluster.activities.push({
+      id: activity.id,
+      name: activity.name,
+      date: activity.start_date_local,
+    });
+  });
+
+  return Array.from(clusterMap.values()).sort((a, b) => b.count - a.count);
+}
+
+// Export formatLocalDate for use in other modules
+export { formatLocalDate };

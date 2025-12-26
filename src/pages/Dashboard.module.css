@@ -33,3 +33,58 @@
   text-align: center;
 }
 
+/* Analytics Charts Grid */
+.analyticsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .analyticsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Full-width charts (heatmap needs more space) */
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--gray-12);
+  margin-bottom: 1rem;
+}
+
+.loadMoreContainer {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.loadMoreBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--accent-11);
+  background: var(--accent-a3);
+  border: 1px solid var(--accent-a6);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.loadMoreBtn:hover {
+  background: var(--accent-a4);
+  border-color: var(--accent-a8);
+}
+
+.loadMoreBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

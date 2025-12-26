@@ -99,8 +99,8 @@ interface ActivityChartsProps {
   fetchNextPage?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
-  timeSpan: TimeSpan;
-  onTimeSpanChange: (timeSpan: TimeSpan) => void;
+  timeSpan?: TimeSpan;
+  onTimeSpanChange?: (timeSpan: TimeSpan) => void;
 }
 
 // Custom tooltip component
@@ -204,10 +204,14 @@ export function ActivityCharts({
   fetchNextPage,
   hasNextPage,
   isFetchingNextPage,
-  timeSpan,
+  timeSpan: timeSpanProp,
   onTimeSpanChange,
 }: ActivityChartsProps) {
-  // State for controls
+  // State for controls - use internal state if no external control provided
+  const [internalTimeSpan, setInternalTimeSpan] = useState<TimeSpan>("30d");
+  const timeSpan = timeSpanProp ?? internalTimeSpan;
+  const handleTimeSpanChange = onTimeSpanChange ?? setInternalTimeSpan;
+
   const [page, setPage] = useState(0);
   const [selectedActivityTypes, setSelectedActivityTypes] = useState<
     string[] | null
@@ -311,8 +315,8 @@ export function ActivityCharts({
   }, [timeSpan, page]);
 
   // Handle time span change - reset page
-  const handleTimeSpanChange = (newTimeSpan: TimeSpan) => {
-    onTimeSpanChange(newTimeSpan);
+  const onTimeSpanChangeWithReset = (newTimeSpan: TimeSpan) => {
+    handleTimeSpanChange(newTimeSpan);
     setPage(0);
   };
 
@@ -357,7 +361,7 @@ export function ActivityCharts({
 
       <ChartControls
         timeSpan={timeSpan}
-        onTimeSpanChange={handleTimeSpanChange}
+        onTimeSpanChange={onTimeSpanChangeWithReset}
         selectedActivityTypes={effectiveSelectedTypes}
         onActivityTypesChange={setSelectedActivityTypes}
         selectedMetrics={selectedMetrics}

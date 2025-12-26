@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
   Container,
@@ -11,39 +11,28 @@ import {
 } from "@radix-ui/themes";
 import { AuthButton } from "../components/AuthButton";
 import { ActivityCharts } from "../components/ActivityCharts";
+import {
+  WeeklyVolumeChart,
+  ConsistencyHeatmap,
+  LongRideProgressionChart,
+  DurationDistributionChart,
+  PaceSpeedTrendChart,
+  ClimbingFocusChart,
+  AcuteChronicLoadChart,
+  TopRoutesChart,
+} from "../components/AnalyticsCharts";
 import { useAuthStore } from "../stores/authStore";
 import { useAthlete } from "../hooks/useAthlete";
 import { useAthleteStats } from "../hooks/useAthleteStats";
 import { useActivities } from "../hooks/useActivities";
-import type { TimeSpan } from "../lib/chart-utils";
 import styles from "./Dashboard.module.css";
 
-// Strava API maximum per_page limit
-const STRAVA_MAX_PER_PAGE = 200;
-
-// Calculate perPage based on time span (days * 1.1, min 30, max 200)
-function getPerPageForTimeSpan(timeSpan: TimeSpan): number {
-  const daysMap: Record<TimeSpan, number> = {
-    "7d": 7,
-    "30d": 30,
-    "90d": 90,
-    ytd: 365,
-    all: 200,
-  };
-  const days = daysMap[timeSpan];
-  const calculated = Math.ceil(days * 1.1);
-  return Math.min(STRAVA_MAX_PER_PAGE, Math.max(30, calculated));
-}
+// Strava API maximum per_page limit - fetch more for analytics charts
+const STRAVA_PER_PAGE = 200;
 
 export function Dashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading, athlete } = useAuthStore();
-
-  // Time span state lifted from ActivityCharts for dynamic fetch sizing
-  const [timeSpan, setTimeSpan] = useState<TimeSpan>("30d");
-
-  // Calculate perPage based on time span
-  const perPage = useMemo(() => getPerPageForTimeSpan(timeSpan), [timeSpan]);
 
   // Fetch athlete data to check auth status
   const { isLoading: athleteLoading, isError: athleteError } = useAthlete();
@@ -56,7 +45,7 @@ export function Dashboard() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useActivities(perPage);
+  } = useActivities(STRAVA_PER_PAGE);
 
   const isLoading = authLoading || athleteLoading;
 
@@ -146,16 +135,86 @@ export function Dashboard() {
 
           <Separator size="4" />
 
-          {/* Activity Charts */}
+          {/* Original Activity Trends Chart */}
           <ActivityCharts
             activities={activities}
             isLoading={activitiesLoading}
             fetchNextPage={fetchNextPage}
             hasNextPage={hasNextPage}
             isFetchingNextPage={isFetchingNextPage}
-            timeSpan={timeSpan}
-            onTimeSpanChange={setTimeSpan}
           />
+          <Separator size="4" />
+
+          {/* Analytics Charts Grid */}
+          <Box>
+            <Heading size="4" mb="4">
+              Analytics
+            </Heading>
+
+            {activitiesLoading ? (
+              <Flex align="center" justify="center" py="9">
+                <Spinner size="3" />
+                <Text ml="3" color="gray">
+                  Loading activities...
+                </Text>
+              </Flex>
+            ) : (
+              <div className={styles.analyticsGrid}>
+                <WeeklyVolumeChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <LongRideProgressionChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <DurationDistributionChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <PaceSpeedTrendChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <ClimbingFocusChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <AcuteChronicLoadChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <div className={styles.fullWidth}>
+                  <ConsistencyHeatmap
+                    activities={activities}
+                    fetchNextPage={fetchNextPage}
+                    hasNextPage={hasNextPage}
+                    isFetchingNextPage={isFetchingNextPage}
+                  />
+                </div>
+                <TopRoutesChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              </div>
+            )}
+          </Box>
+
+          <Separator size="4" />
         </Flex>
       </Container>
     </Box>
