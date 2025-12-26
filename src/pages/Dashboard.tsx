@@ -84,7 +84,7 @@ export function Dashboard() {
       <header className={styles.header}>
         <Container size="4">
           <Flex justify="between" align="center" py="4">
-            <Heading size="5">Strava Dashboard</Heading>
+            <Heading size="5">Dashy</Heading>
             <AuthButton />
           </Flex>
         </Container>
@@ -217,6 +217,25 @@ export function Dashboard() {
           <Separator size="4" />
         </Flex>
       </Container>
+
+      <footer className={styles.footer}>
+        <Container size="4">
+          <Flex justify="center" align="center" py="4">
+            <a
+              href="https://www.strava.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.poweredByLink}
+            >
+              <img
+                src="/api_logo_pwrdBy_strava_horiz_orange.svg"
+                alt="Powered by Strava"
+                height="24"
+              />
+            </a>
+          </Flex>
+        </Container>
+      </footer>
     </Box>
   );
 }

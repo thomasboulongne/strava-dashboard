@@ -1,4 +1,4 @@
-import { Button, Avatar, Flex, Text } from "@radix-ui/themes";
+import { Avatar, Flex, Text, Button } from "@radix-ui/themes";
 import { useAuthStore } from "../stores/authStore";
 import { getAuthUrl } from "../lib/api";
 import styles from "./AuthButton.module.css";
@@ -49,22 +49,17 @@ export function AuthButton() {
   }
 
   return (
-    <Button
-      className={styles.stravaButton}
+    <button
+      className={styles.stravaConnectButton}
       onClick={handleLogin}
-      size="3"
+      type="button"
+      aria-label="Connect with Strava"
     >
-      <svg
-        className={styles.stravaLogo}
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        width="20"
-        height="20"
-      >
-        <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
-      </svg>
-      Connect with Strava
-    </Button>
+      <img
+        src="/btn_strava_connectwith_orange.svg"
+        alt="Connect with Strava"
+        height="48"
+      />
+    </button>
   );
 }
-

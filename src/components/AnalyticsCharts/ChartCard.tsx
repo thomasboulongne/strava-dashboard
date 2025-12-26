@@ -5,6 +5,7 @@ import {
   getDateRange,
   filterActivitiesByDateRange,
 } from "../../lib/chart-utils";
+import { useActivitiesStore } from "../../stores/activitiesStore";
 import type { Activity } from "../../lib/strava-types";
 import styles from "./ChartCard.module.css";
 
@@ -48,18 +49,26 @@ export function ChartCard({
   const [timeSpan, setTimeSpan] = useState<TimeSpan>(defaultTimeSpan);
   const [userChangedTimeSpan, setUserChangedTimeSpan] = useState(false);
 
-  // Determine if we're loading more data for the selected timespan
+  // Get the history complete flag directly from the store
+  // This avoids stale closure issues with hasNextPage
+  const isFetchingComplete = useActivitiesStore(
+    (state) => state.isFetchingComplete
+  );
+
+  // Only show loading if we're actually fetching and don't have all data yet
   const isLoadingMoreData =
     userChangedTimeSpan &&
     (timeSpan === "ytd" || timeSpan === "all") &&
-    hasNextPage &&
+    !isFetchingComplete &&
     isFetchingNextPage;
 
   // Auto-fetch more activities when user manually selects YTD or All
+  // Only if we haven't already fetched all historical data
   useEffect(() => {
     if (
       userChangedTimeSpan &&
       (timeSpan === "ytd" || timeSpan === "all") &&
+      !isFetchingComplete &&
       hasNextPage &&
       !isFetchingNextPage
     ) {
@@ -71,6 +80,7 @@ export function ChartCard({
     isFetchingNextPage,
     fetchNextPage,
     userChangedTimeSpan,
+    isFetchingComplete,
   ]);
 
   const handleTimeSpanChange = (newTimeSpan: TimeSpan) => {

@@ -88,3 +88,26 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Footer with Strava attribution */
+.footer {
+  border-top: 1px solid var(--gray-a5);
+  margin-top: 2rem;
+}
+
+.poweredByLink {
+  display: block;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+  margin: 2rem 0 1rem 0;
+}
+
+.poweredByLink:hover {
+  opacity: 1;
+}
+
+.poweredByLink img {
+  display: block;
+  height: 24px;
+  width: auto;
+}

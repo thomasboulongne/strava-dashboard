@@ -22,6 +22,7 @@ import {
   getUniqueActivityTypeGroups,
   formatMetricValue,
 } from "../../lib/chart-utils";
+import { useActivitiesStore } from "../../stores/activitiesStore";
 import type { Activity } from "../../lib/strava-types";
 import styles from "./ActivityCharts.module.css";
 
@@ -61,15 +62,19 @@ function LockedTooltipContent({
       {dataPoint.activities.length > 0 && (
         <div className={styles.tooltipActivities}>
           {dataPoint.activities.map((activity) => (
-            <a
-              key={activity.id}
-              href={`${STRAVA_ACTIVITY_URL}/${activity.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.tooltipActivityLink}
-            >
-              {activity.name}
-            </a>
+            <div key={activity.id} className={styles.tooltipActivity}>
+              <span className={styles.tooltipActivityName}>
+                {activity.name}
+              </span>
+              <a
+                href={`${STRAVA_ACTIVITY_URL}/${activity.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.viewOnStravaLink}
+              >
+                View on Strava
+              </a>
+            </div>
           ))}
         </div>
       )}
@@ -157,16 +162,20 @@ function CustomTooltip({
       {activities.length > 0 && (
         <div className={styles.tooltipActivities}>
           {activities.map((activity) => (
-            <a
-              key={activity.id}
-              href={`${STRAVA_ACTIVITY_URL}/${activity.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.tooltipActivityLink}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {activity.name}
-            </a>
+            <div key={activity.id} className={styles.tooltipActivity}>
+              <span className={styles.tooltipActivityName}>
+                {activity.name}
+              </span>
+              <a
+                href={`${STRAVA_ACTIVITY_URL}/${activity.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.viewOnStravaLink}
+                onClick={(e) => e.stopPropagation()}
+              >
+                View on Strava
+              </a>
+            </div>
           ))}
         </div>
       )}
@@ -231,16 +240,29 @@ export function ActivityCharts({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Get the history complete flag directly from the store
+  const isFetchingComplete = useActivitiesStore(
+    (state) => state.isFetchingComplete
+  );
+
   // Fetch all activities when time span is "ytd" or "all"
+  // Only if we haven't already fetched all historical data
   useEffect(() => {
     if (
       (timeSpan === "ytd" || timeSpan === "all") &&
+      !isFetchingComplete &&
       hasNextPage &&
       !isFetchingNextPage
     ) {
       fetchNextPage?.();
     }
-  }, [timeSpan, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [
+    timeSpan,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    isFetchingComplete,
+  ]);
 
   // Get available activity types from the data
   const availableActivityTypes = useMemo(
