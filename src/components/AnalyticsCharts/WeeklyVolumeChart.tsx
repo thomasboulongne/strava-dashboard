@@ -66,6 +66,7 @@ function WeeklyVolumeContent({
       const point: Record<string, number | string> = {
         week: week.weekLabel,
         weekKey: week.week,
+        weekRange: week.weekRange,
       };
       allSports.forEach((sport) => {
         const sportData = week.bySport[sport];
@@ -107,15 +108,16 @@ function WeeklyVolumeContent({
           tickFormatter={(v) => (metricMode === "time" ? `${v}h` : `${v}`)}
         />
         <Tooltip
-          content={({ active, payload, label }) => {
+          content={({ active, payload }) => {
             if (!active || !payload?.length) return null;
+            const d = payload[0].payload;
             const total = payload.reduce(
               (sum, p) => sum + (Number(p.value) || 0),
               0
             );
             return (
               <div className={chartStyles.tooltip}>
-                <div className={chartStyles.tooltipLabel}>{label}</div>
+                <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
                 {payload
                   .filter((p) => Number(p.value) > 0)
                   .map((p) => (

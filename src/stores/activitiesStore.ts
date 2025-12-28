@@ -12,12 +12,19 @@ interface ActivitiesState {
   athleteId: number | null;
   // Flag to track if we've fetched all historical data
   isFetchingComplete: boolean;
+  // Session-only flag: tracks if we've found overlap with cached data during current sync
+  // This is NOT persisted - resets on page load
+  hasFoundOverlap: boolean;
+  // Tracks the activity count at the start of sync session (to know if cache was empty)
+  cacheCountAtSyncStart: number;
 
   // Actions
   addActivities: (newActivities: Activity[]) => void;
   validateCache: (athleteId: number) => boolean;
   clearActivities: () => void;
   setFetchingComplete: (complete: boolean) => void;
+  setHasFoundOverlap: (found: boolean) => void;
+  startSyncSession: () => void;
 }
 
 export const useActivitiesStore = create<ActivitiesState>()(
@@ -29,6 +36,8 @@ export const useActivitiesStore = create<ActivitiesState>()(
       lastSyncTime: 0,
       athleteId: null,
       isFetchingComplete: false,
+      hasFoundOverlap: false,
+      cacheCountAtSyncStart: 0,
 
       addActivities: (newActivities) => {
         if (newActivities.length === 0) return;
@@ -102,6 +111,19 @@ export const useActivitiesStore = create<ActivitiesState>()(
 
       setFetchingComplete: (complete) => {
         set({ isFetchingComplete: complete });
+      },
+
+      setHasFoundOverlap: (found) => {
+        set({ hasFoundOverlap: found });
+      },
+
+      startSyncSession: () => {
+        const state = get();
+        // Reset session flags and record the current cache count
+        set({
+          hasFoundOverlap: false,
+          cacheCountAtSyncStart: state.activities.length,
+        });
       },
     }),
     {

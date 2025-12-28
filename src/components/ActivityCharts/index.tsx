@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Box, Heading, Flex, Text, Spinner } from "@radix-ui/themes";
+import { Box, Heading, Flex, Text, Spinner, Skeleton } from "@radix-ui/themes";
 import {
   LineChart,
   Line,
@@ -345,20 +345,76 @@ export function ActivityCharts({
   if (isLoading) {
     return (
       <Box className={styles.chartContainer}>
-        <Heading size="4" mb="4">
-          Activity Trends
-        </Heading>
-        <Flex align="center" justify="center" py="9">
-          <Spinner size="3" />
-          <Text ml="3" color="gray">
-            Loading chart data...
-          </Text>
+        <Flex justify="between" align="center" mb="4">
+          <Skeleton height="24px" width="150px" />
+          <Skeleton height="18px" width="120px" />
         </Flex>
+
+        {/* Controls skeleton */}
+        <Flex gap="3" mb="4" wrap="wrap">
+          <Skeleton height="32px" width="140px" />
+          <Skeleton height="32px" width="180px" />
+          <Skeleton height="32px" width="160px" />
+          <Flex gap="2" ml="auto">
+            <Skeleton height="32px" width="32px" />
+            <Skeleton height="32px" width="32px" />
+          </Flex>
+        </Flex>
+
+        {/* Chart area skeleton */}
+        <Box className={styles.chartWrapper}>
+          <div className={styles.skeletonChartArea}>
+            {/* Y-axis labels */}
+            <div className={styles.skeletonYAxis}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} height="12px" width="40px" />
+              ))}
+            </div>
+
+            {/* Chart content with animated line */}
+            <div className={styles.skeletonChartContent}>
+              <svg
+                className={styles.skeletonLineSvg}
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+              >
+                <path
+                  className={styles.skeletonLine}
+                  d="M0,70 Q10,60 20,65 T40,50 T60,55 T80,40 T100,45"
+                />
+              </svg>
+              <div className={styles.skeletonGridLines}>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className={styles.skeletonGridLine} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* X-axis labels */}
+          <Flex justify="between" mt="2" px="6">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} height="12px" width="30px" />
+            ))}
+          </Flex>
+
+          {/* Legend skeleton */}
+          <div className={styles.legendContainer}>
+            <Flex align="center" gap="2">
+              <Skeleton
+                height="8px"
+                width="8px"
+                style={{ borderRadius: "50%" }}
+              />
+              <Skeleton height="12px" width="100px" />
+            </Flex>
+          </div>
+        </Box>
       </Box>
     );
   }
 
-  console.log("chartData", chartData);
+  console.log("activities", activities);
 
   return (
     <Box className={styles.chartContainer}>

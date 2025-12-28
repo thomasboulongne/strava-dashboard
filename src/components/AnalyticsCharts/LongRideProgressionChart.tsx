@@ -89,7 +89,7 @@ function LongRideContent({
             if (!d.maxActivity) {
               return (
                 <div className={chartStyles.tooltip}>
-                  <div className={chartStyles.tooltipLabel}>{d.weekLabel}</div>
+                  <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
                   <div className={chartStyles.tooltipValue}>
                     No rides this week
                   </div>
@@ -98,7 +98,7 @@ function LongRideContent({
             }
             return (
               <div className={chartStyles.tooltip}>
-                <div className={chartStyles.tooltipLabel}>{d.weekLabel}</div>
+                <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
                 <div className={chartStyles.tooltipValue}>
                   <span
                     className={chartStyles.tooltipDot}

@@ -7,8 +7,6 @@ import {
   IconButton,
 } from "@radix-ui/themes";
 import {
-  PiPersonSimpleRun,
-  PiBicycle,
   PiSwimmingPool,
   PiPersonSimpleWalk,
   PiMountains,
@@ -20,10 +18,11 @@ import {
   PiHeartbeat,
   PiCaretLeft,
   PiCaretRight,
-  PiHouse,
 } from "react-icons/pi";
+import { IndoorIcon } from "../icons/IndoorIcon";
 import type { TimeSpan, MetricKey } from "../../lib/chart-utils";
 import styles from "./ActivityCharts.module.css";
+import { MdDirectionsBike, MdDirectionsRun } from "react-icons/md";
 
 interface ChartControlsProps {
   timeSpan: TimeSpan;
@@ -41,9 +40,9 @@ interface ChartControlsProps {
 
 // Activity type options with icons
 const ACTIVITY_TYPE_OPTIONS = [
-  { value: "Run", label: "Run", icon: PiPersonSimpleRun },
-  { value: "Ride", label: "Ride", icon: PiBicycle },
-  { value: "IndoorRide", label: "Indoor", icon: PiHouse },
+  { value: "Run", label: "Run", icon: MdDirectionsRun },
+  { value: "Ride", label: "Ride", icon: MdDirectionsBike },
+  { value: "IndoorRide", label: "Indoor", icon: IndoorIcon },
   { value: "Swim", label: "Swim", icon: PiSwimmingPool },
   { value: "Walk", label: "Walk", icon: PiPersonSimpleWalk },
   { value: "Hike", label: "Hike", icon: PiMountains },

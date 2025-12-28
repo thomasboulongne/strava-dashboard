@@ -99,7 +99,7 @@
   display: block;
   opacity: 0.8;
   transition: opacity 0.2s ease;
-  margin: 2rem 0 1rem 0;
+  margin: 1rem 0 1rem 0;
 }
 
 .poweredByLink:hover {
@@ -108,6 +108,25 @@
 
 .poweredByLink img {
   display: block;
-  height: 24px;
+  height: 12px;
   width: auto;
+}
+
+/* Stats grid for skeleton loading */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (min-width: 600px) {
+  .statsGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.statCard {
+  background: var(--gray-a3);
+  border-radius: var(--radius-2);
+  padding: 1rem;
 }

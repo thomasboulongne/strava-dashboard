@@ -503,11 +503,34 @@ export function getWeekStart(date: Date): Date {
   return d;
 }
 
+// Get the Sunday of a given week (from Monday)
+export function getWeekEnd(weekStart: Date): Date {
+  const d = new Date(weekStart);
+  d.setDate(d.getDate() + 6);
+  return d;
+}
+
+// Format week range as "Dec 16 – Dec 22" or "Dec 30 – Jan 5"
+export function formatWeekRange(weekStart: Date): string {
+  const weekEnd = getWeekEnd(weekStart);
+  const startMonth = weekStart.toLocaleDateString("en-US", { month: "short" });
+  const endMonth = weekEnd.toLocaleDateString("en-US", { month: "short" });
+  const startDay = weekStart.getDate();
+  const endDay = weekEnd.getDate();
+
+  if (startMonth === endMonth) {
+    return `${startMonth} ${startDay} – ${endDay}`;
+  }
+  return `${startMonth} ${startDay} – ${endMonth} ${endDay}`;
+}
+
 // Weekly volume data point for stacked bar chart
 export interface WeeklyVolumeDataPoint {
   week: string;
   weekLabel: string;
   weekStart: string;
+  weekEnd: string;
+  weekRange: string; // e.g. "Dec 16 – Dec 22"
   // Totals across all sports
   totalTime: number; // hours
   totalDistance: number; // km
@@ -535,10 +558,13 @@ export function bucketByWeekVolume(
       month: "short",
       day: "numeric",
     });
+    const weekEndDate = getWeekEnd(current);
     weekMap.set(weekKey, {
       week: weekKey,
       weekLabel,
       weekStart: formatLocalDate(current),
+      weekEnd: formatLocalDate(weekEndDate),
+      weekRange: formatWeekRange(current),
       totalTime: 0,
       totalDistance: 0,
       totalElevation: 0,
@@ -628,6 +654,7 @@ function getIntensityBin(minutes: number): 0 | 1 | 2 | 3 | 4 {
 export interface WeeklyMaxRideData {
   week: string;
   weekLabel: string;
+  weekRange: string; // e.g. "Dec 16 – Dec 22"
   maxDurationHours: number;
   maxActivity: { id: number; name: string; date: string } | null;
 }
@@ -651,6 +678,7 @@ export function getWeeklyMaxRides(
     weekMap.set(weekKey, {
       week: weekKey,
       weekLabel,
+      weekRange: formatWeekRange(current),
       maxDurationHours: 0,
       maxActivity: null,
     });
@@ -737,18 +765,39 @@ export interface SpeedDataPoint {
   name: string;
   speedKph: number;
   durationMin: number;
+  rideType: RideTypeFilter;
 }
 
-// Get ride speeds over time
+// Ride type filter options (based on sport_type)
+export type RideTypeFilter = "Ride" | "GravelRide";
+
+// Get the ride type for filtering (uses sport_type to distinguish gravel)
+function getRideTypeForFilter(activity: Activity): RideTypeFilter {
+  // Gravel rides have sport_type "GravelRide" but type "Ride"
+  if (activity.sport_type === "GravelRide") {
+    return "GravelRide";
+  }
+  return "Ride";
+}
+
+// Get ride speeds over time (excludes indoor rides)
 export function getRideSpeeds(
   activities: Activity[],
-  minDurationMinutes: number = 20
+  minDurationMinutes: number = 20,
+  enabledTypes?: Set<RideTypeFilter>
 ): SpeedDataPoint[] {
   const rideTypes = new Set(ACTIVITY_TYPE_GROUPS.Ride.types);
+  // Default to all types if not specified
+  const typesToInclude =
+    enabledTypes ?? new Set<RideTypeFilter>(["Ride", "GravelRide"]);
 
   return activities
     .filter(
-      (a) => rideTypes.has(a.type) && a.moving_time / 60 >= minDurationMinutes
+      (a) =>
+        rideTypes.has(a.type) &&
+        typesToInclude.has(getRideTypeForFilter(a)) &&
+        a.moving_time / 60 >= minDurationMinutes &&
+        !isIndoorRide(a) // Exclude indoor rides - speed data not meaningful
     )
     .map((a) => ({
       date: formatLocalDate(new Date(a.start_date_local)),
@@ -756,6 +805,7 @@ export function getRideSpeeds(
       name: a.name,
       speedKph: a.distance / 1000 / (a.moving_time / 3600),
       durationMin: a.moving_time / 60,
+      rideType: getRideTypeForFilter(a),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -803,6 +853,7 @@ export function computeRollingMedian(
 export interface ClimbingFocusData {
   week: string;
   weekLabel: string;
+  weekRange: string; // e.g. "Dec 16 – Dec 22"
   totalElevation: number; // m
   avgVerticalRate: number; // m/h
   rideCount: number;
@@ -854,6 +905,7 @@ export function getClimbingFocusData(
     result.push({
       week: weekKey,
       weekLabel,
+      weekRange: formatWeekRange(weekCurrent),
       totalElevation: data.elev,
       avgVerticalRate: data.totalTime > 0 ? data.elev / data.totalTime : 0,
       rideCount: data.count,

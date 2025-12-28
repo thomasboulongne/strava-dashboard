@@ -74,7 +74,7 @@ function ClimbingFocusContent({
             const d = payload[0].payload;
             return (
               <div className={chartStyles.tooltip}>
-                <div className={chartStyles.tooltipLabel}>{d.weekLabel}</div>
+                <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
                 <div className={chartStyles.tooltipValue}>
                   <span className={chartStyles.tooltipDot} style={{ backgroundColor: "#22c55e" }} />
                   Elevation: {Math.round(d.totalElevation)}m

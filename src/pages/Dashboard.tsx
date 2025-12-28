@@ -5,7 +5,7 @@ import {
   Flex,
   Heading,
   Text,
-  Spinner,
+  Skeleton,
   Box,
   Separator,
 } from "@radix-ui/themes";
@@ -21,6 +21,11 @@ import {
   AcuteChronicLoadChart,
   TopRoutesChart,
 } from "../components/AnalyticsCharts";
+import {
+  DashboardSkeleton,
+  ChartCardSkeleton,
+  HeatmapSkeleton,
+} from "../components/Skeletons";
 import { useAuthStore } from "../stores/authStore";
 import { useAthlete } from "../hooks/useAthlete";
 import { useAthleteStats } from "../hooks/useAthleteStats";
@@ -57,18 +62,19 @@ export function Dashboard() {
 
   if (isLoading) {
     return (
-      <Container size="4" className={styles.container}>
-        <Flex
-          direction="column"
-          align="center"
-          justify="center"
-          gap="4"
-          className={styles.loading}
-        >
-          <Spinner size="3" />
-          <Text color="gray">Loading your data...</Text>
-        </Flex>
-      </Container>
+      <Box className={styles.page}>
+        <header className={styles.header}>
+          <Container size="4">
+            <Flex justify="between" align="center" py="4">
+              <Heading size="5">Dashy</Heading>
+              <Skeleton height="32px" width="100px" />
+            </Flex>
+          </Container>
+        </header>
+        <Container size="4" className={styles.container}>
+          <DashboardSkeleton />
+        </Container>
+      </Box>
     );
   }
 
@@ -110,10 +116,14 @@ export function Dashboard() {
               Stats Overview
             </Heading>
             {statsLoading ? (
-              <Flex align="center" gap="2">
-                <Spinner size="2" />
-                <Text color="gray">Loading stats...</Text>
-              </Flex>
+              <div className={styles.statsGrid}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className={styles.statCard}>
+                    <Skeleton height="14px" width="80px" mb="2" />
+                    <Skeleton height="32px" width="60px" />
+                  </div>
+                ))}
+              </div>
             ) : stats ? (
               <Box className={styles.placeholder}>
                 <Text color="gray" size="2">
@@ -152,12 +162,15 @@ export function Dashboard() {
             </Heading>
 
             {activitiesLoading ? (
-              <Flex align="center" justify="center" py="9">
-                <Spinner size="3" />
-                <Text ml="3" color="gray">
-                  Loading activities...
-                </Text>
-              </Flex>
+              <div className={styles.analyticsGrid}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <ChartCardSkeleton key={i} />
+                ))}
+                <div className={styles.fullWidth}>
+                  <HeatmapSkeleton />
+                </div>
+                <ChartCardSkeleton />
+              </div>
             ) : (
               <div className={styles.analyticsGrid}>
                 <WeeklyVolumeChart

@@ -1,0 +1,183 @@
+/* Chart Card Skeleton */
+.chartCard {
+  background: var(--gray-a2);
+  border-radius: var(--radius-4);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 380px;
+}
+
+.chartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.chartContent {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  padding: 1rem 0;
+}
+
+.chartBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+  height: 200px;
+}
+
+.chartBar {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+}
+
+/* Activity Chart Skeleton */
+.activityChart {
+  background: var(--gray-a2);
+  border-radius: var(--radius-4);
+  padding: 1.5rem;
+}
+
+.lineChartArea {
+  display: flex;
+  gap: 0.75rem;
+  height: 280px;
+  margin-top: 1rem;
+}
+
+.yAxis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.lineChartContent {
+  flex: 1;
+  position: relative;
+  border-left: 1px solid var(--gray-a4);
+  border-bottom: 1px solid var(--gray-a4);
+}
+
+.lineSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.skeletonLine {
+  fill: none;
+  stroke: var(--gray-a6);
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: linePulse 2s ease-in-out infinite;
+}
+
+@keyframes linePulse {
+  0%, 100% {
+    stroke: var(--gray-a4);
+  }
+  50% {
+    stroke: var(--gray-a7);
+  }
+}
+
+.gridLines {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.gridLine {
+  width: 100%;
+  height: 1px;
+  background: var(--gray-a3);
+}
+
+.legend {
+  border-top: 1px solid var(--gray-a4);
+}
+
+/* Stats Section Skeleton */
+.statsSection {
+  background: var(--gray-a2);
+  border-radius: var(--radius-3);
+  padding: 1.5rem;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (min-width: 600px) {
+  .statsGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.statCard {
+  background: var(--gray-a3);
+  border-radius: var(--radius-2);
+  padding: 1rem;
+}
+
+/* Analytics Grid Skeleton */
+.analyticsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .analyticsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+/* Heatmap Skeleton */
+.heatmapContent {
+  flex: 1;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+}
+
+.heatmapGrid {
+  display: flex;
+  gap: 2px;
+}
+
+.heatmapWeek {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.heatmapCell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+/* Separator */
+.separator {
+  height: 1px;
+  background: var(--gray-a5);
+  width: 100%;
+}
+

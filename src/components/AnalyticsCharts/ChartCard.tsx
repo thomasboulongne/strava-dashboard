@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from "react";
-import { Spinner, Text } from "@radix-ui/themes";
+import { Skeleton, Spinner, Text } from "@radix-ui/themes";
 import {
   type TimeSpan,
   getDateRange,
@@ -132,7 +132,18 @@ export function ChartCard({
       <div className={styles.chartContent}>
         {isLoading ? (
           <div className={styles.loadingState}>
-            <Spinner size="3" />
+            <div className={styles.skeletonBars}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  className={styles.skeletonBar}
+                  style={{
+                    height: `${30 + Math.random() * 60}%`,
+                    animationDelay: `${i * 50}ms`,
+                  }}
+                />
+              ))}
+            </div>
           </div>
         ) : (
           <div className={styles.chartArea}>
