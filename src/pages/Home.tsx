@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Container, Flex, Heading, Text, Callout } from "@radix-ui/themes";
+import { Container, Flex, Text, Callout } from "@radix-ui/themes";
 import { AuthButton } from "../components/AuthButton";
 import { useAuthStore } from "../stores/authStore";
 import styles from "./Home.module.css";
