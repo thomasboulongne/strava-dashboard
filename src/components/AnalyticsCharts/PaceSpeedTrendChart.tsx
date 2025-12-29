@@ -74,10 +74,13 @@ function PaceSpeedContent({
         const typeConfig = RIDE_TYPE_OPTIONS.find((t) => t.key === d.rideType);
         return {
           ...d,
-          dateLabel: new Date(d.date + "T12:00:00").toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
+          dateLabel: new Date(d.date + "T12:00:00").toLocaleDateString(
+            "en-US",
+            {
+              month: "short",
+              day: "numeric",
+            }
+          ),
           fill: typeConfig?.color ?? "#8b5cf6",
         };
       }),
@@ -194,22 +197,25 @@ function PaceSpeedContent({
             dataKey="speedKph"
             fillOpacity={0.7}
             name="Individual rides"
-            shape={(props: {
-              cx: number;
-              cy: number;
-              payload: { fill: string };
-            }) => (
-              <circle
-                cx={props.cx}
-                cy={props.cy}
-                r={5}
-                fill={props.payload.fill}
-                fillOpacity={0.7}
-                stroke={props.payload.fill}
-                strokeWidth={1}
-                strokeOpacity={0.9}
-              />
-            )}
+            shape={(props: unknown) => {
+              const { cx, cy, payload } = props as {
+                cx: number;
+                cy: number;
+                payload: { fill: string };
+              };
+              return (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={5}
+                  fill={payload.fill}
+                  fillOpacity={0.7}
+                  stroke={payload.fill}
+                  strokeWidth={1}
+                  strokeOpacity={0.9}
+                />
+              );
+            }}
           />
         </ComposedChart>
       </ResponsiveContainer>

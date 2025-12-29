@@ -102,6 +102,9 @@ export function ChartCard({
     return { startDate: start, endDate: end, filteredActivities: filtered };
   }, [activities, timeSpan, earliestActivityDate]);
 
+  // Deterministic heights for skeleton bars (avoids impure Math.random during render)
+  const skeletonHeights = [75, 45, 60, 85, 50, 70, 40, 80, 55, 65];
+
   return (
     <div className={styles.chartCard}>
       <div className={styles.chartHeader}>
@@ -138,7 +141,7 @@ export function ChartCard({
                   key={i}
                   className={styles.skeletonBar}
                   style={{
-                    height: `${30 + Math.random() * 60}%`,
+                    height: `${skeletonHeights[i]}%`,
                     animationDelay: `${i * 50}ms`,
                   }}
                 />

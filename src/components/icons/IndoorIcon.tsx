@@ -15,3 +15,4 @@ export const IndoorIcon = ({ size = 24 }: { size?: number }) => (
   </svg>
 );
 
+
