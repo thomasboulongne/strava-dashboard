@@ -45,8 +45,15 @@ export default async function handler(request: Request, _context: Context) {
       athleteId ?? undefined
     );
 
-    return jsonResponse({ success: true }, 200, {
-      "Set-Cookie": cookies.join(", "),
+    // Use Headers object to properly set multiple Set-Cookie headers
+    const headers = new Headers({
+      "Content-Type": "application/json",
+    });
+    cookies.forEach((cookie) => headers.append("Set-Cookie", cookie));
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers,
     });
   } catch (error) {
     console.error("Refresh error:", error);

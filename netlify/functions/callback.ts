@@ -57,12 +57,14 @@ export default async function handler(request: Request, _context: Context) {
 
     // Redirect to dashboard with cookies set
     // The dashboard will trigger the sync process
+    // Use Headers.append() to properly set multiple Set-Cookie headers
+    const headers = new Headers();
+    headers.set("Location", `${getSiteUrl()}/dashboard`);
+    cookies.forEach((cookie) => headers.append("Set-Cookie", cookie));
+
     return new Response(null, {
       status: 302,
-      headers: {
-        Location: `${getSiteUrl()}/dashboard`,
-        "Set-Cookie": cookies.join(", "),
-      },
+      headers,
     });
   } catch (error) {
     console.error("Callback error:", error);

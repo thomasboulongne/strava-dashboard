@@ -138,7 +138,12 @@ export function parseTokensFromCookies(cookieHeader: string | null): {
   athleteId: number | null;
 } {
   if (!cookieHeader) {
-    return { accessToken: null, refreshToken: null, expiresAt: null, athleteId: null };
+    return {
+      accessToken: null,
+      refreshToken: null,
+      expiresAt: null,
+      athleteId: null,
+    };
   }
 
   const cookies = Object.fromEntries(
@@ -187,7 +192,9 @@ export function createTokenCookies(
 
   // Include athlete ID cookie if provided (needed for DB token updates)
   if (athleteId) {
-    cookies.push(`strava_athlete_id=${athleteId}; Max-Age=${refreshTokenMaxAge}${secure}${sameSite}${path}`);
+    cookies.push(
+      `strava_athlete_id=${athleteId}; Max-Age=${refreshTokenMaxAge}${secure}${sameSite}${path}`
+    );
   }
 
   return cookies;
@@ -293,9 +300,18 @@ export function jsonResponseWithCookies(
   data: unknown,
   newCookies: string[] | null
 ): Response {
-  const headers: Record<string, string> = {};
+  // Use Headers object to properly set multiple Set-Cookie headers
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    ...getCorsHeaders(),
+  });
+
   if (newCookies) {
-    headers["Set-Cookie"] = newCookies.join(", ");
+    newCookies.forEach((cookie) => headers.append("Set-Cookie", cookie));
   }
-  return jsonResponse(data, 200, headers);
+
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers,
+  });
 }

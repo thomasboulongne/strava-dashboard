@@ -1,6 +1,82 @@
-import { Flex, Text, Badge, Button, Spinner, Tooltip, Box } from "@radix-ui/themes";
-import { FiRefreshCw, FiCheck, FiAlertCircle, FiPause, FiActivity } from "react-icons/fi";
+import {
+  Flex,
+  Text,
+  Badge,
+  Button,
+  Spinner,
+  Tooltip,
+  Box,
+} from "@radix-ui/themes";
+import {
+  FiRefreshCw,
+  FiCheck,
+  FiAlertCircle,
+  FiPause,
+  FiActivity,
+} from "react-icons/fi";
 import { useSync } from "../hooks/useSync";
+
+interface StreamsIndicatorProps {
+  streamsProgress: {
+    total: number;
+    withStreams: number;
+    pending: number;
+  } | null;
+  isStreamsSyncing: boolean;
+  streamsComplete: boolean;
+  startStreamsSync: () => void;
+}
+
+function StreamsIndicator({
+  streamsProgress,
+  isStreamsSyncing,
+  streamsComplete,
+  startStreamsSync,
+}: StreamsIndicatorProps) {
+  if (!streamsProgress || streamsProgress.total === 0) {
+    return null;
+  }
+
+  const percent = Math.round(
+    (streamsProgress.withStreams / streamsProgress.total) * 100
+  );
+
+  if (isStreamsSyncing) {
+    return (
+      <Tooltip
+        content={`Syncing HR/Power data: ${streamsProgress.withStreams}/${streamsProgress.total}`}
+      >
+        <Flex align="center" gap="1">
+          <Spinner size="1" />
+          <Text size="1" color="gray">
+            {percent}%
+          </Text>
+        </Flex>
+      </Tooltip>
+    );
+  }
+
+  if (!streamsComplete) {
+    return (
+      <Tooltip
+        content={`${streamsProgress.pending} activities need HR/Power sync`}
+      >
+        <Button size="1" variant="ghost" onClick={startStreamsSync}>
+          <FiActivity size={12} />
+          <Text size="1">{percent}%</Text>
+        </Button>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Tooltip content="All HR/Power data synced">
+      <Box>
+        <FiActivity size={12} color="var(--green-9)" />
+      </Box>
+    </Tooltip>
+  );
+}
 
 export function SyncStatus() {
   const {
@@ -17,55 +93,30 @@ export function SyncStatus() {
     startStreamsSync,
   } = useSync();
 
-  // Streams sync indicator
-  const StreamsIndicator = () => {
-    if (!streamsProgress || streamsProgress.total === 0) {
-      return null;
-    }
-
-    const percent = Math.round((streamsProgress.withStreams / streamsProgress.total) * 100);
-
-    if (isStreamsSyncing) {
-      return (
-        <Tooltip content={`Syncing HR/Power data: ${streamsProgress.withStreams}/${streamsProgress.total}`}>
-          <Flex align="center" gap="1">
-            <Spinner size="1" />
-            <Text size="1" color="gray">
-              {percent}%
-            </Text>
-          </Flex>
-        </Tooltip>
-      );
-    }
-
-    if (!streamsComplete) {
-      return (
-        <Tooltip content={`${streamsProgress.pending} activities need HR/Power sync`}>
-          <Button size="1" variant="ghost" onClick={startStreamsSync}>
-            <FiActivity size={12} />
-            <Text size="1">{percent}%</Text>
-          </Button>
-        </Tooltip>
-      );
-    }
-
-    return (
-      <Tooltip content="All HR/Power data synced">
-        <Box>
-          <FiActivity size={12} color="var(--green-9)" />
-        </Box>
-      </Tooltip>
-    );
-  };
-
-  // No sync job at all
+  // No sync job at all - show activities with refresh option
   if (!syncJob) {
     return (
       <Flex align="center" gap="2">
+        {activityCount > 0 ? (
+          <FiCheck size={14} color="var(--green-9)" />
+        ) : null}
         <Text size="2" color="gray">
           {activityCount} activities
         </Text>
-        <StreamsIndicator />
+        <StreamsIndicator
+          streamsProgress={streamsProgress}
+          isStreamsSyncing={isStreamsSyncing}
+          streamsComplete={streamsComplete}
+          startStreamsSync={startStreamsSync}
+        />
+        <Button
+          size="1"
+          variant="ghost"
+          onClick={forceSync}
+          title="Sync activities from Strava"
+        >
+          <FiRefreshCw size={12} />
+        </Button>
       </Flex>
     );
   }
@@ -131,8 +182,18 @@ export function SyncStatus() {
         <Text size="2" color="gray">
           {activityCount} activities
         </Text>
-        <StreamsIndicator />
-        <Button size="1" variant="ghost" onClick={forceSync} title="Refresh activities">
+        <StreamsIndicator
+          streamsProgress={streamsProgress}
+          isStreamsSyncing={isStreamsSyncing}
+          streamsComplete={streamsComplete}
+          startStreamsSync={startStreamsSync}
+        />
+        <Button
+          size="1"
+          variant="ghost"
+          onClick={forceSync}
+          title="Refresh activities"
+        >
           <FiRefreshCw size={12} />
         </Button>
       </Flex>
@@ -145,8 +206,12 @@ export function SyncStatus() {
       <Text size="2" color="gray">
         {activityCount} activities
       </Text>
-      <StreamsIndicator />
+      <StreamsIndicator
+        streamsProgress={streamsProgress}
+        isStreamsSyncing={isStreamsSyncing}
+        streamsComplete={streamsComplete}
+        startStreamsSync={startStreamsSync}
+      />
     </Flex>
   );
 }
-

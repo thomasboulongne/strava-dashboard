@@ -146,10 +146,15 @@ export function useSync() {
   }, [statusLoading, syncStatus?.syncJob, startSync]);
 
   // Auto-start streams sync after activity sync is complete if there are pending streams
+  // Also start if there's no sync job but activities exist (e.g., webhook-synced activities)
   useEffect(() => {
+    const activitySyncComplete =
+      syncStatus?.syncJob?.status === "completed" ||
+      (!syncStatus?.syncJob && (syncStatus?.activityCount ?? 0) > 0);
+
     if (
       !statusLoading &&
-      syncStatus?.syncJob?.status === "completed" &&
+      activitySyncComplete &&
       syncStatus?.streams?.pending &&
       syncStatus.streams.pending > 0 &&
       !streamsSyncInProgressRef.current
@@ -161,7 +166,14 @@ export function useSync() {
         }
       }, 2000);
     }
-  }, [statusLoading, syncStatus?.syncJob?.status, syncStatus?.streams?.pending, startStreamsSync]);
+  }, [
+    statusLoading,
+    syncStatus?.syncJob?.status,
+    syncStatus?.syncJob,
+    syncStatus?.activityCount,
+    syncStatus?.streams?.pending,
+    startStreamsSync,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -187,7 +199,10 @@ export function useSync() {
     // Streams sync status
     streamsProgress: syncStatus?.streams ?? null,
     isStreamsSyncing: isStreamsSyncing || streamsSyncInProgressRef.current,
-    streamsComplete: syncStatus?.streams ? syncStatus.streams.pending === 0 : true,
+    // Only show as complete if we have loaded the status and there are no pending streams
+    streamsComplete: syncStatus?.streams
+      ? syncStatus.streams.pending === 0 && syncStatus.streams.total > 0
+      : false,
 
     // Progress
     progress: syncStatus?.syncJob ? {
