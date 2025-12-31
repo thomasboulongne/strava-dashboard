@@ -6,9 +6,9 @@ neonConfig.fetchConnectionCache = true;
 
 // Get database connection
 export function getDb() {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.NETLIFY_DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL environment variable is not set");
+    throw new Error("NETLIFY_DATABASE_URL environment variable is not set");
   }
   return neon(databaseUrl);
 }
