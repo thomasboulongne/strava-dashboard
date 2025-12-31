@@ -1,6 +1,9 @@
 import { Skeleton, Box, Flex } from "@radix-ui/themes";
 import styles from "./Skeletons.module.css";
 
+// Deterministic heights for skeleton bars (avoids impure Math.random during render)
+const SKELETON_HEIGHTS = [75, 45, 60, 85, 50, 70, 40, 80, 55, 65, 72, 48];
+
 /**
  * Skeleton for a single chart card matching ChartCard layout
  */
@@ -19,12 +22,12 @@ export function ChartCardSkeleton() {
       {/* Chart area simulation */}
       <div className={styles.chartContent}>
         <div className={styles.chartBars}>
-          {Array.from({ length: 12 }).map((_, i) => (
+          {SKELETON_HEIGHTS.map((height, i) => (
             <Skeleton
               key={i}
               className={styles.chartBar}
               style={{
-                height: `${30 + Math.random() * 60}%`,
+                height: `${height}%`,
                 animationDelay: `${i * 50}ms`,
               }}
             />

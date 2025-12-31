@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
-import { Box, Heading, Flex, Text, Spinner, Skeleton } from "@radix-ui/themes";
+import { useState, useMemo } from "react";
+import { Box, Heading, Flex, Text, Skeleton } from "@radix-ui/themes";
 import {
   LineChart,
   Line,
@@ -22,7 +22,6 @@ import {
   getUniqueActivityTypeGroups,
   formatMetricValue,
 } from "../../lib/chart-utils";
-import { useActivitiesStore } from "../../stores/activitiesStore";
 import type { Activity } from "../../lib/strava-types";
 import styles from "./ActivityCharts.module.css";
 
@@ -101,6 +100,7 @@ function LockedTooltipContent({
 interface ActivityChartsProps {
   activities: Activity[];
   isLoading?: boolean;
+  // Kept for backward compatibility but no longer used
   fetchNextPage?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -210,9 +210,10 @@ function CustomTooltip({
 export function ActivityCharts({
   activities,
   isLoading = false,
-  fetchNextPage,
-  hasNextPage,
-  isFetchingNextPage,
+  // Kept for backward compatibility but no longer used
+  fetchNextPage: _fetchNextPage,
+  hasNextPage: _hasNextPage,
+  isFetchingNextPage: _isFetchingNextPage,
   timeSpan: timeSpanProp,
   onTimeSpanChange,
 }: ActivityChartsProps) {
@@ -239,30 +240,6 @@ export function ActivityCharts({
     metrics: Array<{ key: MetricKey; value: number }>;
     position: { x: number; y: number };
   } | null>(null);
-
-  // Get the history complete flag directly from the store
-  const isFetchingComplete = useActivitiesStore(
-    (state) => state.isFetchingComplete
-  );
-
-  // Fetch all activities when time span is "ytd" or "all"
-  // Only if we haven't already fetched all historical data
-  useEffect(() => {
-    if (
-      (timeSpan === "ytd" || timeSpan === "all") &&
-      !isFetchingComplete &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage?.();
-    }
-  }, [
-    timeSpan,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-    isFetchingComplete,
-  ]);
 
   // Get available activity types from the data
   const availableActivityTypes = useMemo(
@@ -419,17 +396,7 @@ export function ActivityCharts({
   return (
     <Box className={styles.chartContainer}>
       <Flex justify="between" align="center" mb="4">
-        <Flex align="center" gap="2">
-          <Heading size="4">Activity Trends</Heading>
-          {isFetchingNextPage && (
-            <Flex align="center" gap="1">
-              <Spinner size="1" />
-              <Text size="1" color="gray">
-                Loading more...
-              </Text>
-            </Flex>
-          )}
-        </Flex>
+        <Heading size="4">Activity Trends</Heading>
         {timeSpan !== "all" && (
           <Text size="2" color="gray" className={styles.paginationInfo}>
             {dateRangeLabel}
@@ -464,11 +431,6 @@ export function ActivityCharts({
         ) : (
           <>
             <div className={styles.chartAreaContainer}>
-              {isFetchingNextPage && (
-                <div className={styles.chartOverlay}>
-                  <Spinner size="3" />
-                </div>
-              )}
               <div
                 className={styles.chartArea}
                 onClick={() => setLockedTooltip(null)}

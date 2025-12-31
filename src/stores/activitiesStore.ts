@@ -1,181 +1,42 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Activity } from "../lib/strava-types";
 
+// Minimal client-side store for athlete preferences
+// Activities are now stored server-side in Neon DB
 interface ActivitiesState {
-  // Stored activities (sorted by date, newest first)
-  activities: Activity[];
-  // Metadata
-  oldestActivityDate: Date | null;
-  newestActivityDate: Date | null;
-  lastSyncTime: number;
+  // Just track which athlete is logged in for cache invalidation
   athleteId: number | null;
-  // Flag to track if we've fetched all historical data
+  // Legacy flag for backward compatibility with some components
   isFetchingComplete: boolean;
-  // Session-only flag: tracks if we've found overlap with cached data during current sync
-  // This is NOT persisted - resets on page load
-  hasFoundOverlap: boolean;
-  // Tracks the activity count at the start of sync session (to know if cache was empty)
-  cacheCountAtSyncStart: number;
 
   // Actions
-  addActivities: (newActivities: Activity[]) => void;
-  validateCache: (athleteId: number) => boolean;
-  clearActivities: () => void;
-  setFetchingComplete: (complete: boolean) => void;
-  setHasFoundOverlap: (found: boolean) => void;
-  startSyncSession: () => void;
+  setAthleteId: (athleteId: number) => void;
+  clearStore: () => void;
 }
 
 export const useActivitiesStore = create<ActivitiesState>()(
   persist(
-    (set, get) => ({
-      activities: [],
-      oldestActivityDate: null,
-      newestActivityDate: null,
-      lastSyncTime: 0,
+    (set) => ({
       athleteId: null,
-      isFetchingComplete: false,
-      hasFoundOverlap: false,
-      cacheCountAtSyncStart: 0,
+      isFetchingComplete: true, // Always true since server has all data
 
-      addActivities: (newActivities) => {
-        if (newActivities.length === 0) return;
+      setAthleteId: (athleteId) => {
+        set({ athleteId });
+      },
 
-        const state = get();
-        const existingIds = new Set(state.activities.map((a) => a.id));
-
-        // Filter out duplicates
-        const uniqueNew = newActivities.filter((a) => !existingIds.has(a.id));
-
-        if (uniqueNew.length === 0) {
-          // All activities already exist, just update sync time
-          set({ lastSyncTime: Date.now() });
-          return;
-        }
-
-        // Merge and sort by date descending
-        const merged = [...state.activities, ...uniqueNew].sort(
-          (a, b) =>
-            new Date(b.start_date_local).getTime() -
-            new Date(a.start_date_local).getTime()
-        );
-
-        // Calculate date bounds
-        const newestActivityDate = new Date(merged[0].start_date_local);
-        const oldestActivityDate = new Date(
-          merged[merged.length - 1].start_date_local
-        );
-
+      clearStore: () => {
         set({
-          activities: merged,
-          newestActivityDate,
-          oldestActivityDate,
-          lastSyncTime: Date.now(),
-        });
-      },
-
-      validateCache: (athleteId) => {
-        const state = get();
-
-        // If athlete ID changed, invalidate cache
-        if (state.athleteId !== null && state.athleteId !== athleteId) {
-          set({
-            activities: [],
-            oldestActivityDate: null,
-            newestActivityDate: null,
-            lastSyncTime: 0,
-            athleteId,
-            isFetchingComplete: false,
-          });
-          return false;
-        }
-
-        // Update athlete ID if not set
-        if (state.athleteId === null) {
-          set({ athleteId });
-        }
-
-        return true;
-      },
-
-      clearActivities: () => {
-        set({
-          activities: [],
-          oldestActivityDate: null,
-          newestActivityDate: null,
-          lastSyncTime: 0,
-          isFetchingComplete: false,
-        });
-      },
-
-      setFetchingComplete: (complete) => {
-        set({ isFetchingComplete: complete });
-      },
-
-      setHasFoundOverlap: (found) => {
-        set({ hasFoundOverlap: found });
-      },
-
-      startSyncSession: () => {
-        const state = get();
-        // Reset session flags and record the current cache count
-        set({
-          hasFoundOverlap: false,
-          cacheCountAtSyncStart: state.activities.length,
+          athleteId: null,
+          isFetchingComplete: true,
         });
       },
     }),
     {
       name: "strava-activities-storage",
-      // Only persist specific fields
       partialize: (state) => ({
-        activities: state.activities,
-        oldestActivityDate: state.oldestActivityDate,
-        newestActivityDate: state.newestActivityDate,
-        lastSyncTime: state.lastSyncTime,
         athleteId: state.athleteId,
-        isFetchingComplete: state.isFetchingComplete,
       }),
-      // Handle date serialization/deserialization
-      storage: {
-        getItem: (name) => {
-          const str = localStorage.getItem(name);
-          if (!str) return null;
-          const parsed = JSON.parse(str);
-          // Convert date strings back to Date objects
-          if (parsed.state) {
-            if (parsed.state.oldestActivityDate) {
-              parsed.state.oldestActivityDate = new Date(
-                parsed.state.oldestActivityDate
-              );
-            }
-            if (parsed.state.newestActivityDate) {
-              parsed.state.newestActivityDate = new Date(
-                parsed.state.newestActivityDate
-              );
-            }
-          }
-          return parsed;
-        },
-        setItem: (name, value) => {
-          localStorage.setItem(name, JSON.stringify(value));
-        },
-        removeItem: (name) => {
-          localStorage.removeItem(name);
-        },
-      },
     }
   )
 );
-
-// Selector hooks for common access patterns
-export const useActivitiesCount = () =>
-  useActivitiesStore((state) => state.activities.length);
-
-export const useOldestActivityDate = () =>
-  useActivitiesStore((state) => state.oldestActivityDate);
-
-export const useNewestActivityDate = () =>
-  useActivitiesStore((state) => state.newestActivityDate);
 

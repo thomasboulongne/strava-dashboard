@@ -135,9 +135,10 @@ export function parseTokensFromCookies(cookieHeader: string | null): {
   accessToken: string | null;
   refreshToken: string | null;
   expiresAt: number | null;
+  athleteId: number | null;
 } {
   if (!cookieHeader) {
-    return { accessToken: null, refreshToken: null, expiresAt: null };
+    return { accessToken: null, refreshToken: null, expiresAt: null, athleteId: null };
   }
 
   const cookies = Object.fromEntries(
@@ -153,13 +154,17 @@ export function parseTokensFromCookies(cookieHeader: string | null): {
     expiresAt: cookies["strava_expires_at"]
       ? parseInt(cookies["strava_expires_at"])
       : null,
+    athleteId: cookies["strava_athlete_id"]
+      ? parseInt(cookies["strava_athlete_id"])
+      : null,
   };
 }
 
 export function createTokenCookies(
   accessToken: string,
   refreshToken: string,
-  expiresAt: number
+  expiresAt: number,
+  athleteId?: number
 ): string[] {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   const sameSite = "; SameSite=Lax";
@@ -174,11 +179,18 @@ export function createTokenCookies(
   // Refresh token lasts longer (30 days)
   const refreshTokenMaxAge = 30 * 24 * 60 * 60;
 
-  return [
+  const cookies = [
     `strava_access_token=${accessToken}; Max-Age=${accessTokenMaxAge}${httpOnly}${secure}${sameSite}${path}`,
     `strava_refresh_token=${refreshToken}; Max-Age=${refreshTokenMaxAge}${httpOnly}${secure}${sameSite}${path}`,
     `strava_expires_at=${expiresAt}; Max-Age=${accessTokenMaxAge}${secure}${sameSite}${path}`,
   ];
+
+  // Include athlete ID cookie if provided (needed for DB token updates)
+  if (athleteId) {
+    cookies.push(`strava_athlete_id=${athleteId}; Max-Age=${refreshTokenMaxAge}${secure}${sameSite}${path}`);
+  }
+
+  return cookies;
 }
 
 export function createLogoutCookies(): string[] {
@@ -191,6 +203,7 @@ export function createLogoutCookies(): string[] {
     `strava_access_token=; Max-Age=0${httpOnly}${secure}${sameSite}${path}`,
     `strava_refresh_token=; Max-Age=0${httpOnly}${secure}${sameSite}${path}`,
     `strava_expires_at=; Max-Age=0${secure}${sameSite}${path}`,
+    `strava_athlete_id=; Max-Age=0${secure}${sameSite}${path}`,
   ];
 }
 

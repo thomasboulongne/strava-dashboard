@@ -1,11 +1,10 @@
-import { useState, useMemo, useEffect, type ReactNode } from "react";
-import { Skeleton, Spinner, Text } from "@radix-ui/themes";
+import { useState, useMemo, type ReactNode } from "react";
+import { Skeleton } from "@radix-ui/themes";
 import {
   type TimeSpan,
   getDateRange,
   filterActivitiesByDateRange,
 } from "../../lib/chart-utils";
-import { useActivitiesStore } from "../../stores/activitiesStore";
 import type { Activity } from "../../lib/strava-types";
 import styles from "./ChartCard.module.css";
 
@@ -22,6 +21,8 @@ export interface ChartCardProps {
   activities: Activity[];
   isLoading?: boolean;
   defaultTimeSpan?: TimeSpan;
+  // These props are kept for backward compatibility but are no longer used
+  // since all data now comes from the server
   fetchNextPage?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -40,51 +41,16 @@ export function ChartCard({
   activities,
   isLoading = false,
   defaultTimeSpan = "90d",
-  fetchNextPage,
-  hasNextPage,
-  isFetchingNextPage,
+  // These are kept for API compatibility but unused
+  fetchNextPage: _fetchNextPage,
+  hasNextPage: _hasNextPage,
+  isFetchingNextPage: _isFetchingNextPage,
   children,
   controls,
 }: ChartCardProps) {
   const [timeSpan, setTimeSpan] = useState<TimeSpan>(defaultTimeSpan);
-  const [userChangedTimeSpan, setUserChangedTimeSpan] = useState(false);
-
-  // Get the history complete flag directly from the store
-  // This avoids stale closure issues with hasNextPage
-  const isFetchingComplete = useActivitiesStore(
-    (state) => state.isFetchingComplete
-  );
-
-  // Only show loading if we're actually fetching and don't have all data yet
-  const isLoadingMoreData =
-    userChangedTimeSpan &&
-    (timeSpan === "ytd" || timeSpan === "all") &&
-    !isFetchingComplete &&
-    isFetchingNextPage;
-
-  // Auto-fetch more activities when user manually selects YTD or All
-  // Only if we haven't already fetched all historical data
-  useEffect(() => {
-    if (
-      userChangedTimeSpan &&
-      (timeSpan === "ytd" || timeSpan === "all") &&
-      !isFetchingComplete &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage?.();
-    }
-  }, [
-    timeSpan,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-    userChangedTimeSpan,
-    isFetchingComplete,
-  ]);
 
   const handleTimeSpanChange = (newTimeSpan: TimeSpan) => {
-    setUserChangedTimeSpan(true);
     setTimeSpan(newTimeSpan);
   };
 
@@ -151,14 +117,6 @@ export function ChartCard({
         ) : (
           <div className={styles.chartArea}>
             {children({ filteredActivities, startDate, endDate, timeSpan })}
-            {isLoadingMoreData && (
-              <div className={styles.loadingOverlay}>
-                <Spinner size="3" />
-                <Text size="2" color="gray" mt="2">
-                  Loading more activities...
-                </Text>
-              </div>
-            )}
           </div>
         )}
       </div>

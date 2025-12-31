@@ -1,23 +1,58 @@
 import type { Context } from "@netlify/functions";
 import {
-  fetchFromStrava,
   withAuth,
   jsonResponseWithCookies,
   jsonResponse,
+  parseTokensFromCookies,
+  handleCorsPreFlight,
 } from "./lib/strava.js";
+import { getActivitiesForAthlete, getActivityCount } from "./lib/db.js";
 
 export default async function handler(request: Request, _context: Context) {
-  return withAuth(request, async (req, accessToken, newCookies) => {
-    try {
-      const url = new URL(req.url);
-      const page = url.searchParams.get("page") || "1";
-      const perPage = url.searchParams.get("per_page") || "30";
+  // Handle CORS preflight
+  if (request.method === "OPTIONS") {
+    return handleCorsPreFlight();
+  }
 
-      const activities = await fetchFromStrava("/athlete/activities", accessToken, {
-        page,
-        per_page: perPage,
+  return withAuth(request, async (req, _accessToken, newCookies) => {
+    try {
+      const cookieHeader = request.headers.get("cookie");
+      const { athleteId } = parseTokensFromCookies(cookieHeader);
+
+      if (!athleteId) {
+        return jsonResponse({ error: "No athlete ID" }, 400);
+      }
+
+      const url = new URL(req.url);
+      const limit = parseInt(url.searchParams.get("limit") || "200", 10);
+      const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+      const before = url.searchParams.get("before") || undefined;
+      const after = url.searchParams.get("after") || undefined;
+
+      // Fetch activities from database
+      const dbActivities = await getActivitiesForAthlete(athleteId, {
+        limit,
+        offset,
+        before,
+        after,
       });
-      return jsonResponseWithCookies(activities, newCookies);
+
+      // Get total count for pagination
+      const totalCount = await getActivityCount(athleteId);
+
+      // Transform DB activities to match the Strava API format
+      const activities = dbActivities.map((dbActivity) => dbActivity.data);
+
+      return jsonResponseWithCookies(
+        {
+          activities,
+          total: totalCount,
+          limit,
+          offset,
+          hasMore: offset + activities.length < totalCount,
+        },
+        newCookies
+      );
     } catch (error) {
       console.error("Activities fetch error:", error);
       const message = error instanceof Error ? error.message : "Unknown error";

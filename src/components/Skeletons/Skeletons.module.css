@@ -2,33 +2,62 @@
 .chartCard {
   background: var(--gray-a2);
   border-radius: var(--radius-4);
-  padding: 1.25rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  min-height: 380px;
+  min-height: 320px;
+}
+
+@media (min-width: 640px) {
+  .chartCard {
+    padding: 1.25rem;
+    min-height: 380px;
+  }
 }
 
 .chartHeader {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .chartHeader {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
 }
 
 .chartContent {
   flex: 1;
   display: flex;
   align-items: flex-end;
-  padding: 1rem 0;
+  padding: 0.75rem 0;
+}
+
+@media (min-width: 640px) {
+  .chartContent {
+    padding: 1rem 0;
+  }
 }
 
 .chartBars {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  height: 200px;
+  height: 160px;
+}
+
+@media (min-width: 640px) {
+  .chartBars {
+    gap: 8px;
+    height: 200px;
+  }
 }
 
 .chartBar {
@@ -41,14 +70,27 @@
 .activityChart {
   background: var(--gray-a2);
   border-radius: var(--radius-4);
-  padding: 1.5rem;
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .activityChart {
+    padding: 1.5rem;
+  }
 }
 
 .lineChartArea {
   display: flex;
-  gap: 0.75rem;
-  height: 280px;
+  gap: 0.5rem;
+  height: 220px;
   margin-top: 1rem;
+}
+
+@media (min-width: 640px) {
+  .lineChartArea {
+    gap: 0.75rem;
+    height: 280px;
+  }
 }
 
 .yAxis {
@@ -112,13 +154,25 @@
 .statsSection {
   background: var(--gray-a2);
   border-radius: var(--radius-3);
-  padding: 1.5rem;
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .statsSection {
+    padding: 1.5rem;
+  }
 }
 
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .statsGrid {
+    gap: 1rem;
+  }
 }
 
 @media (min-width: 600px) {
@@ -130,14 +184,26 @@
 .statCard {
   background: var(--gray-a3);
   border-radius: var(--radius-2);
-  padding: 1rem;
+  padding: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .statCard {
+    padding: 1rem;
+  }
 }
 
 /* Analytics Grid Skeleton */
 .analyticsGrid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1.25rem;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .analyticsGrid {
+    gap: 1.25rem;
+  }
 }
 
 @media (min-width: 900px) {
@@ -155,23 +221,43 @@
   flex: 1;
   overflow-x: auto;
   padding: 0.5rem 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .heatmapGrid {
   display: flex;
-  gap: 2px;
+  gap: 1px;
+}
+
+@media (min-width: 640px) {
+  .heatmapGrid {
+    gap: 2px;
+  }
 }
 
 .heatmapWeek {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+}
+
+@media (min-width: 640px) {
+  .heatmapWeek {
+    gap: 2px;
+  }
 }
 
 .heatmapCell {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 2px;
+}
+
+@media (min-width: 640px) {
+  .heatmapCell {
+    width: 12px;
+    height: 12px;
+  }
 }
 
 /* Separator */

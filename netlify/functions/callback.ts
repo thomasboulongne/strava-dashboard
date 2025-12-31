@@ -1,5 +1,10 @@
 import type { Context } from "@netlify/functions";
-import { exchangeCodeForTokens, createTokenCookies, getSiteUrl } from "./lib/strava.js";
+import {
+  exchangeCodeForTokens,
+  createTokenCookies,
+  getSiteUrl,
+} from "./lib/strava.js";
+import { upsertUser, createSyncJob } from "./lib/db.js";
 
 export default async function handler(request: Request, _context: Context) {
   try {
@@ -13,22 +18,45 @@ export default async function handler(request: Request, _context: Context) {
     }
 
     if (!code) {
-      return new Response(JSON.stringify({ error: "No authorization code provided" }), {
-        status: 400,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      return new Response(
+        JSON.stringify({ error: "No authorization code provided" }),
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
     }
 
     const tokens = await exchangeCodeForTokens(code);
+
+    // Store user and tokens in database
+    const athlete = tokens.athlete;
+    await upsertUser({
+      id: athlete.id,
+      username: athlete.username,
+      firstname: athlete.firstname,
+      lastname: athlete.lastname,
+      profile: athlete.profile,
+      profile_medium: athlete.profile_medium,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_expires_at: tokens.expires_at,
+    });
+
+    // Create a sync job for initial activity import
+    await createSyncJob(athlete.id);
+
     const cookies = createTokenCookies(
       tokens.access_token,
       tokens.refresh_token,
-      tokens.expires_at
+      tokens.expires_at,
+      athlete.id
     );
 
     // Redirect to dashboard with cookies set
+    // The dashboard will trigger the sync process
     return new Response(null, {
       status: 302,
       headers: {
@@ -41,4 +69,3 @@ export default async function handler(request: Request, _context: Context) {
     return Response.redirect(`${getSiteUrl()}/?error=auth_failed`, 302);
   }
 }
-

@@ -60,11 +60,87 @@ export async function getAthleteStats(
   return fetchApi<AthleteStats>(`/stats?athleteId=${athleteId}`);
 }
 
+// Sync status types
+export interface SyncJob {
+  id: number;
+  status: "pending" | "in_progress" | "completed" | "failed" | "paused";
+  currentPage: number;
+  totalActivitiesSynced: number;
+  lastError: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface StreamsSyncProgress {
+  total: number;
+  withStreams: number;
+  pending: number;
+}
+
+export interface SyncStatusResponse {
+  syncJob: SyncJob | null;
+  activityCount: number;
+  streams?: StreamsSyncProgress;
+}
+
+export interface SyncTriggerResponse {
+  status: "pending" | "in_progress" | "completed" | "paused" | "failed";
+  reason?: string;
+  currentPage?: number;
+  totalSynced?: number;
+  hasMore?: boolean;
+  syncJob?: SyncJob;
+  error?: string;
+}
+
+// Sync endpoints
+export async function getSyncStatus(): Promise<SyncStatusResponse> {
+  return fetchApi<SyncStatusResponse>("/sync");
+}
+
+export async function triggerSync(): Promise<SyncTriggerResponse> {
+  return fetchApi<SyncTriggerResponse>("/sync", { method: "POST" });
+}
+
+// Streams sync types
+export interface StreamsSyncStatusResponse {
+  streams: StreamsSyncProgress;
+  percentComplete: number;
+}
+
+export interface StreamsSyncTriggerResponse {
+  status: "in_progress" | "completed" | "paused";
+  synced?: number;
+  skipped?: number;
+  hasMore?: boolean;
+  reason?: string;
+  streams: StreamsSyncProgress;
+}
+
+// Streams sync endpoints
+export async function getStreamsSyncStatus(): Promise<StreamsSyncStatusResponse> {
+  return fetchApi<StreamsSyncStatusResponse>("/sync-streams");
+}
+
+export async function triggerStreamsSync(): Promise<StreamsSyncTriggerResponse> {
+  return fetchApi<StreamsSyncTriggerResponse>("/sync-streams", { method: "POST" });
+}
+
+// Activities response type (new format from DB)
+export interface ActivitiesResponse {
+  activities: Activity[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+// Activities endpoint - fetches from DB
 export async function getActivities(
-  page = 1,
-  perPage = 30
-): Promise<Activity[]> {
-  return fetchApi<Activity[]>(`/activities?page=${page}&per_page=${perPage}`);
+  limit = 200,
+  offset = 0
+): Promise<ActivitiesResponse> {
+  return fetchApi<ActivitiesResponse>(`/activities?limit=${limit}&offset=${offset}`);
 }
 
 export { ApiError };

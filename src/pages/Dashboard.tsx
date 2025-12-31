@@ -10,6 +10,7 @@ import {
   Separator,
 } from "@radix-ui/themes";
 import { AuthButton } from "../components/AuthButton";
+import { SyncStatus } from "../components/SyncStatus";
 import { ActivityCharts } from "../components/ActivityCharts";
 import {
   WeeklyVolumeChart,
@@ -99,13 +100,18 @@ export function Dashboard() {
       <Container size="4" className={styles.container}>
         <Flex direction="column" gap="6" py="6">
           <Box>
-            <Heading size="6" mb="2">
-              Welcome back, {athlete?.firstname}!
-            </Heading>
-            <Text color="gray">
-              Here's your activity overview. Customize this dashboard to display
-              your stats however you'd like.
-            </Text>
+            <Flex justify="between" align="start">
+              <Box>
+                <Heading size="6" mb="2">
+                  Welcome back, {athlete?.firstname}!
+                </Heading>
+                <Text color="gray">
+                  Here's your activity overview. Customize this dashboard to
+                  display your stats however you'd like.
+                </Text>
+              </Box>
+              <SyncStatus />
+            </Flex>
           </Box>
 
           <Separator size="4" />

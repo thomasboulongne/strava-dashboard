@@ -3,7 +3,6 @@ import {
   Flex,
   Text,
   SegmentedControl,
-  RadioCards,
   IconButton,
 } from "@radix-ui/themes";
 import {
@@ -97,24 +96,26 @@ export function ChartControls({
   };
 
   return (
-    <Flex direction="column" gap="5">
+    <Flex direction="column" gap="4" className={styles.controlsContainer}>
       {/* Time Span Control */}
       <Box>
         <Text size="2" weight="medium" mb="2" as="p">
           Time Period
         </Text>
-        <Flex align="center" gap="3">
-          <SegmentedControl.Root
-            value={timeSpan}
-            onValueChange={(value) => onTimeSpanChange(value as TimeSpan)}
-            size="2"
-          >
-            <SegmentedControl.Item value="7d">7 Days</SegmentedControl.Item>
-            <SegmentedControl.Item value="30d">30 Days</SegmentedControl.Item>
-            <SegmentedControl.Item value="90d">90 Days</SegmentedControl.Item>
-            <SegmentedControl.Item value="ytd">Year</SegmentedControl.Item>
-            <SegmentedControl.Item value="all">All</SegmentedControl.Item>
-          </SegmentedControl.Root>
+        <Flex align="center" gap="3" wrap="wrap">
+          <div className={styles.segmentedControlWrapper}>
+            <SegmentedControl.Root
+              value={timeSpan}
+              onValueChange={(value) => onTimeSpanChange(value as TimeSpan)}
+              size="2"
+            >
+              <SegmentedControl.Item value="7d">7d</SegmentedControl.Item>
+              <SegmentedControl.Item value="30d">30d</SegmentedControl.Item>
+              <SegmentedControl.Item value="90d">90d</SegmentedControl.Item>
+              <SegmentedControl.Item value="ytd">Year</SegmentedControl.Item>
+              <SegmentedControl.Item value="all">All</SegmentedControl.Item>
+            </SegmentedControl.Root>
+          </div>
 
           {/* Pagination */}
           {timeSpan !== "all" && (
@@ -147,11 +148,7 @@ export function ChartControls({
         <Text size="2" weight="medium" mb="2" as="p">
           Activity Types
         </Text>
-        <RadioCards.Root
-          className={styles.radioCardsGrid}
-          columns={{ initial: "3", sm: "6" }}
-          gap="2"
-        >
+        <div className={styles.toggleCardsGrid}>
           {ACTIVITY_TYPE_OPTIONS.filter((option) =>
             availableActivityTypes.includes(option.value)
           ).map((option) => {
@@ -159,23 +156,22 @@ export function ChartControls({
             const isSelected = selectedActivityTypes.includes(option.value);
 
             return (
-              <Box
+              <button
+                type="button"
                 key={option.value}
                 onClick={() => toggleActivityType(option.value)}
                 className={`${styles.toggleCard} ${
                   isSelected ? styles.toggleCardSelected : ""
                 }`}
               >
-                <Flex direction="column" align="center" gap="1" p="3">
-                  <Icon size={24} />
-                  <Text size="1" weight="medium">
-                    {option.label}
-                  </Text>
-                </Flex>
-              </Box>
+                <Icon size={20} />
+                <Text size="1" weight="medium">
+                  {option.label}
+                </Text>
+              </button>
             );
           })}
-        </RadioCards.Root>
+        </div>
       </Box>
 
       {/* Metrics */}
@@ -183,33 +179,28 @@ export function ChartControls({
         <Text size="2" weight="medium" mb="2" as="p">
           Metrics
         </Text>
-        <RadioCards.Root
-          className={styles.radioCardsGrid}
-          columns={{ initial: "3", sm: "5" }}
-          gap="2"
-        >
+        <div className={styles.toggleCardsGrid}>
           {METRIC_OPTIONS.map((option) => {
             const Icon = option.icon;
             const isSelected = selectedMetrics.includes(option.value);
 
             return (
-              <Box
+              <button
+                type="button"
                 key={option.value}
                 onClick={() => toggleMetric(option.value)}
                 className={`${styles.toggleCard} ${
                   isSelected ? styles.toggleCardSelected : ""
                 }`}
               >
-                <Flex direction="column" align="center" gap="1" p="3">
-                  <Icon size={24} />
-                  <Text size="1" weight="medium">
-                    {option.label}
-                  </Text>
-                </Flex>
-              </Box>
+                <Icon size={20} />
+                <Text size="1" weight="medium">
+                  {option.label}
+                </Text>
+              </button>
             );
           })}
-        </RadioCards.Root>
+        </div>
       </Box>
     </Flex>
   );
