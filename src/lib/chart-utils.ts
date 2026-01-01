@@ -1,7 +1,7 @@
 import type { Activity, ActivityType } from "./strava-types";
 
 // Time span options
-export type TimeSpan = "7d" | "30d" | "90d" | "ytd" | "all";
+export type TimeSpan = "7d" | "30d" | "90d" | "1y" | "ytd" | "all";
 
 // Detect if a ride is an indoor ride (trainer, no GPS)
 export function isIndoorRide(activity: Activity): boolean {
@@ -170,6 +170,10 @@ export function getDateRange(
       break;
     case "90d":
       daysInSpan = 90;
+      break;
+    case "1y":
+      // Rolling past year - 365 days
+      daysInSpan = 365;
       break;
     case "ytd":
       // Year to date - from Jan 1 of current year
@@ -346,7 +350,7 @@ export function aggregateActivitiesByDate(
   endDate: Date
 ): ChartDataPoint[] {
   // Determine aggregation granularity
-  const aggregateByWeek = timeSpan === "ytd" || timeSpan === "all";
+  const aggregateByWeek = timeSpan === "1y" || timeSpan === "ytd" || timeSpan === "all";
 
   // Generate all date keys in range (including days with no activities)
   const allDateKeys = generateAllDateKeys(startDate, endDate, aggregateByWeek);
@@ -1055,3 +1059,465 @@ export function clusterByStartLocation(
 
 // Export formatLocalDate for use in other modules
 export { formatLocalDate };
+
+// ============================================
+// HR Zone and Power Zone Utilities
+// ============================================
+
+import type {
+  HeartRateZoneRange,
+  PowerZoneRange,
+  ActivityStreams,
+  ZoneTimeData,
+  ActivityZoneBreakdown,
+} from "./strava-types";
+
+// HR Zone colors (Z1-Z5 standard coloring)
+export const HR_ZONE_COLORS = [
+  "#94a3b8", // Z1 - Gray (Recovery)
+  "#22c55e", // Z2 - Green (Endurance)
+  "#eab308", // Z3 - Yellow (Tempo)
+  "#f97316", // Z4 - Orange (Threshold)
+  "#ef4444", // Z5 - Red (VO2 Max)
+];
+
+// Power Zone colors (7 zone system)
+export const POWER_ZONE_COLORS = [
+  "#94a3b8", // Z1 - Active Recovery
+  "#22c55e", // Z2 - Endurance
+  "#84cc16", // Z3 - Tempo
+  "#eab308", // Z4 - Lactate Threshold
+  "#f97316", // Z5 - VO2max
+  "#ef4444", // Z6 - Anaerobic Capacity
+  "#dc2626", // Z7 - Neuromuscular Power
+];
+
+// HR Zone labels
+export const HR_ZONE_LABELS = [
+  "Zone 1 (Recovery)",
+  "Zone 2 (Endurance)",
+  "Zone 3 (Tempo)",
+  "Zone 4 (Threshold)",
+  "Zone 5 (VO2 Max)",
+];
+
+// Power Zone labels
+export const POWER_ZONE_LABELS = [
+  "Z1 (Recovery)",
+  "Z2 (Endurance)",
+  "Z3 (Tempo)",
+  "Z4 (Threshold)",
+  "Z5 (VO2max)",
+  "Z6 (Anaerobic)",
+  "Z7 (Neuromuscular)",
+];
+
+// Find which zone a value falls into
+function findZoneIndex(
+  value: number,
+  zones: Array<{ min: number; max: number }>
+): number {
+  for (let i = 0; i < zones.length; i++) {
+    if (value >= zones[i].min && value < zones[i].max) {
+      return i;
+    }
+  }
+  // If above all zones, return last zone
+  if (value >= zones[zones.length - 1].max) {
+    return zones.length - 1;
+  }
+  return 0;
+}
+
+// Calculate time spent in each HR zone from stream data
+export function computeHRTimeInZones(
+  streams: ActivityStreams,
+  zones: HeartRateZoneRange[]
+): ZoneTimeData[] {
+  const hrData = streams.heartrate?.data;
+  const timeData = streams.time?.data;
+
+  if (!hrData || !timeData || hrData.length < 2 || zones.length === 0) {
+    return zones.map((_, i) => ({
+      zone: i + 1,
+      label: HR_ZONE_LABELS[i] || `Zone ${i + 1}`,
+      seconds: 0,
+      percentage: 0,
+      color: HR_ZONE_COLORS[i] || HR_ZONE_COLORS[HR_ZONE_COLORS.length - 1],
+    }));
+  }
+
+  // Initialize zone counters
+  const zoneTimes = new Array(zones.length).fill(0);
+  let totalSeconds = 0;
+
+  // Calculate time in each zone
+  for (let i = 1; i < hrData.length; i++) {
+    const hr = hrData[i];
+    const timeDelta = timeData[i] - timeData[i - 1];
+
+    if (timeDelta > 0 && timeDelta < 300) {
+      // Ignore gaps > 5 min
+      const zoneIndex = findZoneIndex(hr, zones);
+      zoneTimes[zoneIndex] += timeDelta;
+      totalSeconds += timeDelta;
+    }
+  }
+
+  return zones.map((_, i) => ({
+    zone: i + 1,
+    label: HR_ZONE_LABELS[i] || `Zone ${i + 1}`,
+    seconds: zoneTimes[i],
+    percentage: totalSeconds > 0 ? (zoneTimes[i] / totalSeconds) * 100 : 0,
+    color: HR_ZONE_COLORS[i] || HR_ZONE_COLORS[HR_ZONE_COLORS.length - 1],
+  }));
+}
+
+// Calculate time spent in each power zone from stream data
+export function computePowerTimeInZones(
+  streams: ActivityStreams,
+  zones: PowerZoneRange[]
+): ZoneTimeData[] {
+  const powerData = streams.watts?.data;
+  const timeData = streams.time?.data;
+
+  if (!powerData || !timeData || powerData.length < 2 || zones.length === 0) {
+    return zones.map((_, i) => ({
+      zone: i + 1,
+      label: POWER_ZONE_LABELS[i] || `Zone ${i + 1}`,
+      seconds: 0,
+      percentage: 0,
+      color: POWER_ZONE_COLORS[i] || POWER_ZONE_COLORS[POWER_ZONE_COLORS.length - 1],
+    }));
+  }
+
+  // Initialize zone counters
+  const zoneTimes = new Array(zones.length).fill(0);
+  let totalSeconds = 0;
+
+  // Calculate time in each zone
+  for (let i = 1; i < powerData.length; i++) {
+    const watts = powerData[i];
+    const timeDelta = timeData[i] - timeData[i - 1];
+
+    if (timeDelta > 0 && timeDelta < 300 && watts > 0) {
+      // Ignore gaps and zero power
+      const zoneIndex = findZoneIndex(watts, zones);
+      zoneTimes[zoneIndex] += timeDelta;
+      totalSeconds += timeDelta;
+    }
+  }
+
+  return zones.map((_, i) => ({
+    zone: i + 1,
+    label: POWER_ZONE_LABELS[i] || `Zone ${i + 1}`,
+    seconds: zoneTimes[i],
+    percentage: totalSeconds > 0 ? (zoneTimes[i] / totalSeconds) * 100 : 0,
+    color: POWER_ZONE_COLORS[i] || POWER_ZONE_COLORS[POWER_ZONE_COLORS.length - 1],
+  }));
+}
+
+// Aggregate zone data across multiple activities
+export interface AggregatedZoneData {
+  zone: number;
+  label: string;
+  totalSeconds: number;
+  percentage: number;
+  color: string;
+}
+
+export function aggregateZoneData(
+  breakdowns: ActivityZoneBreakdown[],
+  zoneType: "hr" | "power"
+): AggregatedZoneData[] {
+  if (breakdowns.length === 0) return [];
+
+  const zoneMap = new Map<number, { seconds: number; label: string; color: string }>();
+  let totalSeconds = 0;
+
+  breakdowns.forEach((breakdown) => {
+    const zones = zoneType === "hr" ? breakdown.hrZones : breakdown.powerZones;
+    if (!zones) return;
+
+    zones.forEach((z) => {
+      const existing = zoneMap.get(z.zone);
+      if (existing) {
+        existing.seconds += z.seconds;
+      } else {
+        zoneMap.set(z.zone, {
+          seconds: z.seconds,
+          label: z.label,
+          color: z.color,
+        });
+      }
+      totalSeconds += z.seconds;
+    });
+  });
+
+  return Array.from(zoneMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([zone, data]) => ({
+      zone,
+      label: data.label,
+      totalSeconds: data.seconds,
+      percentage: totalSeconds > 0 ? (data.seconds / totalSeconds) * 100 : 0,
+      color: data.color,
+    }));
+}
+
+// Weekly zone time aggregation for stacked bar charts
+export interface WeeklyZoneData {
+  week: string;
+  weekLabel: string;
+  weekRange: string;
+  totalSeconds: number;
+  zones: Array<{
+    zone: number;
+    label: string;
+    seconds: number;
+    hours: number;
+    color: string;
+  }>;
+}
+
+export function aggregateZonesByWeek(
+  breakdowns: ActivityZoneBreakdown[],
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date,
+  zoneType: "hr" | "power"
+): WeeklyZoneData[] {
+  const weekMap = new Map<string, WeeklyZoneData>();
+
+  // Generate all weeks
+  const current = getWeekStart(startDate);
+  while (current <= endDate) {
+    const weekKey = getISOWeekKey(current);
+    const weekLabel = current.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    weekMap.set(weekKey, {
+      week: weekKey,
+      weekLabel,
+      weekRange: formatWeekRange(current),
+      totalSeconds: 0,
+      zones: [],
+    });
+    current.setDate(current.getDate() + 7);
+  }
+
+  // Map activities to their weeks and zone breakdowns
+  const activityMap = new Map<number, ActivityZoneBreakdown>();
+  breakdowns.forEach((b) => activityMap.set(b.activityId, b));
+
+  activities.forEach((activity) => {
+    const breakdown = activityMap.get(activity.id);
+    if (!breakdown) return;
+
+    const date = new Date(activity.start_date_local);
+    const weekKey = getISOWeekKey(date);
+    const weekData = weekMap.get(weekKey);
+    if (!weekData) return;
+
+    const zones = zoneType === "hr" ? breakdown.hrZones : breakdown.powerZones;
+    if (!zones) return;
+
+    // Aggregate into week
+    zones.forEach((z) => {
+      let existingZone = weekData.zones.find((wz) => wz.zone === z.zone);
+      if (!existingZone) {
+        existingZone = {
+          zone: z.zone,
+          label: z.label,
+          seconds: 0,
+          hours: 0,
+          color: z.color,
+        };
+        weekData.zones.push(existingZone);
+      }
+      existingZone.seconds += z.seconds;
+      existingZone.hours = existingZone.seconds / 3600;
+      weekData.totalSeconds += z.seconds;
+    });
+  });
+
+  // Sort zones within each week
+  weekMap.forEach((data) => {
+    data.zones.sort((a, b) => a.zone - b.zone);
+  });
+
+  return Array.from(weekMap.values()).sort((a, b) =>
+    a.week.localeCompare(b.week)
+  );
+}
+
+// Calculate average HR for an activity from streams
+export function calculateAverageHR(streams: ActivityStreams): number | null {
+  const hrData = streams.heartrate?.data;
+  const timeData = streams.time?.data;
+
+  if (!hrData || !timeData || hrData.length < 2) return null;
+
+  let weightedSum = 0;
+  let totalTime = 0;
+
+  for (let i = 1; i < hrData.length; i++) {
+    const timeDelta = timeData[i] - timeData[i - 1];
+    if (timeDelta > 0 && timeDelta < 300) {
+      weightedSum += hrData[i] * timeDelta;
+      totalTime += timeDelta;
+    }
+  }
+
+  return totalTime > 0 ? weightedSum / totalTime : null;
+}
+
+// Calculate max HR from streams
+export function calculateMaxHR(streams: ActivityStreams): number | null {
+  const hrData = streams.heartrate?.data;
+  if (!hrData || hrData.length === 0) return null;
+  return Math.max(...hrData);
+}
+
+// Calculate normalized power (NP) from streams
+export function calculateNormalizedPower(streams: ActivityStreams): number | null {
+  const powerData = streams.watts?.data;
+  const timeData = streams.time?.data;
+
+  if (!powerData || !timeData || powerData.length < 30) return null;
+
+  // Use 30-second rolling average
+  const windowSize = 30;
+  const rollingPowers: number[] = [];
+
+  for (let i = windowSize - 1; i < powerData.length; i++) {
+    let sum = 0;
+    for (let j = i - windowSize + 1; j <= i; j++) {
+      sum += powerData[j];
+    }
+    rollingPowers.push(sum / windowSize);
+  }
+
+  if (rollingPowers.length === 0) return null;
+
+  // Raise to 4th power, average, then take 4th root
+  const fourthPowers = rollingPowers.map((p) => Math.pow(p, 4));
+  const avgFourthPower =
+    fourthPowers.reduce((a, b) => a + b, 0) / fourthPowers.length;
+
+  return Math.pow(avgFourthPower, 0.25);
+}
+
+// Calculate intensity factor (IF) given NP and FTP
+export function calculateIntensityFactor(np: number, ftp: number): number {
+  return np / ftp;
+}
+
+// Calculate Training Stress Score (TSS)
+export function calculateTSS(
+  np: number,
+  ftp: number,
+  durationSeconds: number
+): number {
+  const intensityFactor = np / ftp;
+  return ((durationSeconds * np * intensityFactor) / (ftp * 3600)) * 100;
+}
+
+// HR trend data point
+export interface HRTrendDataPoint {
+  date: string;
+  activityId: number;
+  name: string;
+  avgHR: number | null;
+  maxHR: number | null;
+  movingTime: number;
+  sportType: string;
+}
+
+// Get HR trend data from activities and streams
+export function getHRTrendData(
+  activities: Activity[],
+  streamsMap: Record<number, ActivityStreams>
+): HRTrendDataPoint[] {
+  return activities
+    .filter((a) => a.has_heartrate)
+    .map((activity) => {
+      const streams = streamsMap[activity.id];
+      return {
+        date: formatLocalDate(new Date(activity.start_date_local)),
+        activityId: activity.id,
+        name: activity.name,
+        avgHR: streams ? calculateAverageHR(streams) : activity.average_heartrate ?? null,
+        maxHR: streams ? calculateMaxHR(streams) : activity.max_heartrate ?? null,
+        movingTime: activity.moving_time,
+        sportType: getEffectiveSportType(activity),
+      };
+    })
+    .filter((d) => d.avgHR !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Power trend data point
+export interface PowerTrendDataPoint {
+  date: string;
+  activityId: number;
+  name: string;
+  avgPower: number | null;
+  normalizedPower: number | null;
+  maxPower: number | null;
+  movingTime: number;
+}
+
+// Get power trend data from activities and streams
+export function getPowerTrendData(
+  activities: Activity[],
+  streamsMap: Record<number, ActivityStreams>
+): PowerTrendDataPoint[] {
+  return activities
+    .filter((a) => a.average_watts !== undefined || a.device_watts)
+    .map((activity) => {
+      const streams = streamsMap[activity.id];
+      const powerData = streams?.watts?.data;
+      const maxPower = powerData ? Math.max(...powerData) : null;
+
+      return {
+        date: formatLocalDate(new Date(activity.start_date_local)),
+        activityId: activity.id,
+        name: activity.name,
+        avgPower: activity.average_watts ?? null,
+        normalizedPower: streams ? calculateNormalizedPower(streams) : null,
+        maxPower,
+        movingTime: activity.moving_time,
+      };
+    })
+    .filter((d) => d.avgPower !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Compute activity zone breakdown
+export function computeActivityZoneBreakdown(
+  activity: Activity,
+  streams: ActivityStreams | undefined,
+  hrZones: Array<{ min: number; max: number }> | null,
+  powerZones: Array<{ min: number; max: number }> | null
+): ActivityZoneBreakdown | null {
+  if (!streams) return null;
+
+  const hrZoneData = hrZones ? computeHRTimeInZones(streams, hrZones) : [];
+  const powerZoneData = powerZones
+    ? computePowerTimeInZones(streams, powerZones)
+    : undefined;
+
+  const totalSeconds = hrZoneData.reduce((sum, z) => sum + z.seconds, 0);
+  if (totalSeconds === 0) return null;
+
+  return {
+    activityId: activity.id,
+    activityName: activity.name,
+    date: activity.start_date_local,
+    totalSeconds,
+    hrZones: hrZoneData,
+    powerZones: powerZoneData,
+  };
+}

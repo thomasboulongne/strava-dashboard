@@ -1,6 +1,12 @@
 // API client for communicating with Netlify Functions
 
-import type { Athlete, AthleteStats, Activity } from "./strava-types";
+import type {
+  Athlete,
+  AthleteStats,
+  Activity,
+  AthleteZonesResponse,
+  ActivityStreamsResponse,
+} from "./strava-types";
 
 // Use VITE_API_URL env var if set, otherwise default to relative /api path
 // This allows explicit configuration for different environments
@@ -61,16 +67,6 @@ export async function getAthleteStats(
 }
 
 // Sync status types
-export interface SyncJob {
-  id: number;
-  status: "pending" | "in_progress" | "completed" | "failed" | "paused";
-  currentPage: number;
-  totalActivitiesSynced: number;
-  lastError: string | null;
-  startedAt: string;
-  completedAt: string | null;
-}
-
 export interface StreamsSyncProgress {
   total: number;
   withStreams: number;
@@ -78,18 +74,21 @@ export interface StreamsSyncProgress {
 }
 
 export interface SyncStatusResponse {
-  syncJob: SyncJob | null;
   activityCount: number;
+  latestActivityDate: string | null;
   streams?: StreamsSyncProgress;
+  // Legacy - no longer used
+  syncJob: null;
 }
 
 export interface SyncTriggerResponse {
-  status: "pending" | "in_progress" | "completed" | "paused" | "failed";
+  status: "in_progress" | "completed" | "paused" | "failed";
   reason?: string;
-  currentPage?: number;
   totalSynced?: number;
+  checkedCount?: number;
   hasMore?: boolean;
-  syncJob?: SyncJob;
+  foundExisting?: boolean;
+  activityCount?: number;
   error?: string;
 }
 
@@ -141,6 +140,27 @@ export async function getActivities(
   offset = 0
 ): Promise<ActivitiesResponse> {
   return fetchApi<ActivitiesResponse>(`/activities?limit=${limit}&offset=${offset}`);
+}
+
+// Athlete zones endpoint
+export async function getAthleteZones(): Promise<AthleteZonesResponse> {
+  return fetchApi<AthleteZonesResponse>("/zones");
+}
+
+// Activity streams endpoint - batch fetch
+export async function getActivityStreams(
+  activityIds?: number[],
+  limit?: number
+): Promise<ActivityStreamsResponse> {
+  if (activityIds && activityIds.length > 0) {
+    return fetchApi<ActivityStreamsResponse>(
+      `/activity-streams?activityIds=${activityIds.join(",")}`
+    );
+  }
+  if (limit) {
+    return fetchApi<ActivityStreamsResponse>(`/activity-streams?limit=${limit}`);
+  }
+  return fetchApi<ActivityStreamsResponse>("/activity-streams");
 }
 
 export { ApiError };

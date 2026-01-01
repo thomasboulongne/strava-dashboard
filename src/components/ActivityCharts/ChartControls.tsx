@@ -112,7 +112,8 @@ export function ChartControls({
               <SegmentedControl.Item value="7d">7d</SegmentedControl.Item>
               <SegmentedControl.Item value="30d">30d</SegmentedControl.Item>
               <SegmentedControl.Item value="90d">90d</SegmentedControl.Item>
-              <SegmentedControl.Item value="ytd">Year</SegmentedControl.Item>
+              <SegmentedControl.Item value="1y">1Y</SegmentedControl.Item>
+              <SegmentedControl.Item value="ytd">YTD</SegmentedControl.Item>
               <SegmentedControl.Item value="all">All</SegmentedControl.Item>
             </SegmentedControl.Root>
           </div>

@@ -1,0 +1,488 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Profile Card */
+.profileCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--gray-a3);
+  border-radius: var(--radius-3);
+}
+
+@media (min-width: 640px) {
+  .profileCard {
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent-8);
+  flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .avatar {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+.profileInfo {
+  flex: 1;
+  min-width: 180px;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--gray-12);
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .name {
+    font-size: 1.25rem;
+  }
+}
+
+.badge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.125rem 0.5rem;
+  background: linear-gradient(135deg, var(--orange-9), var(--amber-9));
+  color: white;
+  border-radius: var(--radius-2);
+}
+
+.profileMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 0.75rem;
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--gray-10);
+}
+
+.location::before {
+  content: "📍 ";
+}
+
+.memberSince::before {
+  content: "📅 ";
+}
+
+.ftpBadge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.625rem 1rem;
+  background: var(--accent-a3);
+  border: 1px solid var(--accent-a6);
+  border-radius: var(--radius-3);
+  margin-left: auto;
+}
+
+.ftpLabel {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-11);
+}
+
+.ftpValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent-12);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Highlight Stats Grid */
+.highlightGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .highlightGrid {
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .highlightGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.875rem;
+  background: var(--gray-a3);
+  border-radius: var(--radius-3);
+  transition: background 0.15s ease;
+}
+
+@media (min-width: 640px) {
+  .statCard {
+    padding: 1rem;
+  }
+}
+
+.statCard:hover {
+  background: var(--gray-a4);
+}
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gray-10);
+}
+
+@media (min-width: 640px) {
+  .statLabel {
+    font-size: 0.75rem;
+  }
+}
+
+.statValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-12);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .statValue {
+    font-size: 1.5rem;
+  }
+}
+
+/* Activity Breakdown Section */
+.breakdownSection {
+  background: var(--gray-a3);
+  border-radius: var(--radius-3);
+  padding: 1rem;
+}
+
+@media (min-width: 640px) {
+  .breakdownSection {
+    padding: 1.25rem;
+  }
+}
+
+.breakdownHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.breakdownTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--gray-12);
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .breakdownTitle {
+    font-size: 1rem;
+  }
+}
+
+.periodToggle {
+  display: flex;
+  border: 1px solid var(--gray-a6);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+}
+
+.periodBtn {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 0.25rem 0.625rem;
+  border: none;
+  background: var(--gray-a2);
+  color: var(--gray-11);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-right: 1px solid var(--gray-a6);
+}
+
+.periodBtn:last-child {
+  border-right: none;
+}
+
+.periodBtn:hover {
+  background: var(--gray-a4);
+}
+
+.periodBtnActive {
+  background: var(--accent-a4);
+  color: var(--accent-11);
+}
+
+.periodLabel {
+  font-size: 0.75rem;
+  color: var(--gray-10);
+  margin: 0 0 1rem 0;
+}
+
+/* Activity List */
+.activityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.activityRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  background: var(--gray-a2);
+  border-radius: var(--radius-2);
+  transition: background 0.15s ease;
+}
+
+@media (min-width: 640px) {
+  .activityRow {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1rem;
+    gap: 1rem;
+  }
+}
+
+.activityRow:hover {
+  background: var(--gray-a3);
+}
+
+.activityType {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--gray-12);
+  min-width: 100px;
+}
+
+.sportIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--accent-a4);
+  border-radius: var(--radius-2);
+  color: var(--accent-11);
+}
+
+.sportIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.activityStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  flex: 1;
+}
+
+@media (min-width: 640px) {
+  .activityStats {
+    gap: 1rem;
+  }
+}
+
+.activityStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+@media (min-width: 640px) {
+  .activityStat {
+    align-items: flex-end;
+    text-align: right;
+  }
+}
+
+.activityStatValue {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--gray-12);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .activityStatValue {
+    font-size: 0.9375rem;
+  }
+}
+
+.activityStatLabel {
+  font-size: 0.625rem;
+  color: var(--gray-10);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+@media (min-width: 640px) {
+  .activityStatLabel {
+    font-size: 0.6875rem;
+  }
+}
+
+/* Empty States */
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  background: var(--gray-a2);
+  border: 1px dashed var(--gray-a6);
+  border-radius: var(--radius-3);
+  color: var(--gray-10);
+  font-size: 0.875rem;
+}
+
+.emptyPeriod {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  color: var(--gray-10);
+  font-size: 0.875rem;
+}
+
+/* Skeleton Loading States */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gray-a4),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeletonAvatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--gray-a4);
+}
+
+@media (min-width: 640px) {
+  .skeletonAvatar {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+.skeletonProfileInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.skeletonName {
+  width: 150px;
+  height: 24px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-2);
+}
+
+.skeletonLocation {
+  width: 100px;
+  height: 16px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-2);
+}
+
+.skeletonLabel {
+  width: 80px;
+  height: 12px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-1);
+}
+
+.skeletonValue {
+  width: 60px;
+  height: 28px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-2);
+  margin-top: 0.25rem;
+}
+
+.skeletonIcon {
+  width: 28px;
+  height: 28px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-2);
+}
+
+.skeletonStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.skeletonStat {
+  height: 36px;
+  background: var(--gray-a4);
+  border-radius: var(--radius-2);
+}
+

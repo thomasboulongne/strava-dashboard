@@ -59,6 +59,32 @@ export interface DbActivityStreams {
   updated_at: Date;
 }
 
+// HR Zone from Strava API
+export interface HRZoneRange {
+  min: number;
+  max: number;
+}
+
+// Strava zones response structure
+export interface StravaZonesResponse {
+  heart_rate?: {
+    custom_zones: boolean;
+    zones: HRZoneRange[];
+  };
+  power?: {
+    zones: Array<{ min: number; max: number }>;
+  };
+}
+
+export interface DbAthleteZones {
+  athlete_id: number;
+  heart_rate_zones: HRZoneRange[] | null;
+  heart_rate_custom: boolean;
+  power_zones: Array<{ min: number; max: number }> | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export type SyncStatus =
   | "pending"
   | "in_progress"
@@ -159,6 +185,18 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_activity_streams_athlete_id ON activity_streams(athlete_id)
+  `;
+
+  // Athlete zones table - stores HR and power zone definitions from Strava
+  await sql`
+    CREATE TABLE IF NOT EXISTS athlete_zones (
+      athlete_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      heart_rate_zones JSONB,
+      heart_rate_custom BOOLEAN DEFAULT false,
+      power_zones JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
   `;
 
   return { success: true };
@@ -334,6 +372,29 @@ export async function getActivityCount(athleteId: number): Promise<number> {
   const result =
     await sql`SELECT COUNT(*) as count FROM activities WHERE athlete_id = ${athleteId}`;
   return parseInt(result[0].count as string, 10);
+}
+
+// Get the latest activity date for an athlete (for sync comparison)
+export async function getLatestActivityDate(
+  athleteId: number
+): Promise<string | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT start_date FROM activities
+    WHERE athlete_id = ${athleteId}
+    ORDER BY start_date DESC
+    LIMIT 1
+  `;
+  if (result.length === 0) return null;
+  return (result[0].start_date as Date).toISOString();
+}
+
+// Check if we have a specific activity by ID
+export async function hasActivity(activityId: number): Promise<boolean> {
+  const sql = getDb();
+  const result =
+    await sql`SELECT 1 FROM activities WHERE id = ${activityId} LIMIT 1`;
+  return result.length > 0;
 }
 
 export async function getActivityById(
@@ -582,4 +643,99 @@ export async function getStreamsSyncProgress(athleteId: number): Promise<{
     withStreams,
     pending: total - withStreams,
   };
+}
+
+// Batch fetch activity streams for multiple activities
+export async function getActivityStreamsBatch(
+  athleteId: number,
+  activityIds: number[]
+): Promise<DbActivityStreams[]> {
+  if (activityIds.length === 0) return [];
+
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM activity_streams
+    WHERE athlete_id = ${athleteId}
+      AND activity_id = ANY(${activityIds})
+  `;
+  return result as DbActivityStreams[];
+}
+
+// Get all activity streams for an athlete (with optional limit)
+export async function getAllActivityStreamsForAthlete(
+  athleteId: number,
+  limit?: number
+): Promise<DbActivityStreams[]> {
+  const sql = getDb();
+
+  if (limit) {
+    const result = await sql`
+      SELECT s.* FROM activity_streams s
+      JOIN activities a ON s.activity_id = a.id
+      WHERE s.athlete_id = ${athleteId}
+      ORDER BY a.start_date DESC
+      LIMIT ${limit}
+    `;
+    return result as DbActivityStreams[];
+  }
+
+  const result = await sql`
+    SELECT s.* FROM activity_streams s
+    JOIN activities a ON s.activity_id = a.id
+    WHERE s.athlete_id = ${athleteId}
+    ORDER BY a.start_date DESC
+  `;
+  return result as DbActivityStreams[];
+}
+
+// Athlete zones operations
+export async function upsertAthleteZones(
+  athleteId: number,
+  zones: StravaZonesResponse
+): Promise<DbAthleteZones> {
+  const sql = getDb();
+
+  const heartRateZones = zones.heart_rate?.zones ?? null;
+  const heartRateCustom = zones.heart_rate?.custom_zones ?? false;
+  const powerZones = zones.power?.zones ?? null;
+
+  const result = await sql`
+    INSERT INTO athlete_zones (athlete_id, heart_rate_zones, heart_rate_custom, power_zones, updated_at)
+    VALUES (
+      ${athleteId},
+      ${heartRateZones ? JSON.stringify(heartRateZones) : null},
+      ${heartRateCustom},
+      ${powerZones ? JSON.stringify(powerZones) : null},
+      NOW()
+    )
+    ON CONFLICT (athlete_id) DO UPDATE SET
+      heart_rate_zones = EXCLUDED.heart_rate_zones,
+      heart_rate_custom = EXCLUDED.heart_rate_custom,
+      power_zones = EXCLUDED.power_zones,
+      updated_at = NOW()
+    RETURNING *
+  `;
+
+  return result[0] as DbAthleteZones;
+}
+
+export async function getAthleteZones(
+  athleteId: number
+): Promise<DbAthleteZones | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM athlete_zones WHERE athlete_id = ${athleteId}
+  `;
+  return (result[0] as DbAthleteZones) || null;
+}
+
+// Check if zones need refresh (older than 7 days)
+export async function zonesNeedRefresh(athleteId: number): Promise<boolean> {
+  const zones = await getAthleteZones(athleteId);
+  if (!zones) return true;
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  return new Date(zones.updated_at) < sevenDaysAgo;
 }

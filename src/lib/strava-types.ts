@@ -180,3 +180,82 @@ export interface AuthStatus {
   athlete?: Pick<Athlete, "id" | "firstname" | "lastname" | "profile">;
 }
 
+// Heart Rate Zone Types
+export interface HeartRateZoneRange {
+  min: number;
+  max: number;
+}
+
+export interface HeartRateZones {
+  custom_zones: boolean;
+  zones: HeartRateZoneRange[];
+}
+
+// Power Zone Types
+export interface PowerZoneRange {
+  min: number;
+  max: number;
+}
+
+export interface PowerZones {
+  zones: PowerZoneRange[];
+}
+
+// Combined Athlete Zones
+export interface AthleteZones {
+  heart_rate: HeartRateZones | null;
+  power: PowerZones | null;
+}
+
+export interface AthleteZonesResponse {
+  zones: AthleteZones;
+  cached: boolean;
+  stale?: boolean;
+  updated_at: string;
+}
+
+// Activity Stream Types (time-series data)
+export interface StreamData {
+  data: number[];
+  series_type?: string;
+  original_size?: number;
+  resolution?: string;
+}
+
+export interface ActivityStreams {
+  time?: StreamData;
+  heartrate?: StreamData;
+  watts?: StreamData;
+  cadence?: StreamData;
+  distance?: StreamData;
+  altitude?: StreamData;
+  velocity_smooth?: StreamData;
+}
+
+export interface ActivityStreamsMap {
+  [activityId: number]: ActivityStreams;
+}
+
+export interface ActivityStreamsResponse {
+  streams: ActivityStreamsMap;
+  count: number;
+}
+
+// Zone Distribution Types (computed from streams)
+export interface ZoneTimeData {
+  zone: number;
+  label: string;
+  seconds: number;
+  percentage: number;
+  color: string;
+}
+
+export interface ActivityZoneBreakdown {
+  activityId: number;
+  activityName: string;
+  date: string;
+  totalSeconds: number;
+  hrZones: ZoneTimeData[];
+  powerZones?: ZoneTimeData[];
+}
+

@@ -21,16 +21,24 @@ import {
   ClimbingFocusChart,
   AcuteChronicLoadChart,
   TopRoutesChart,
+  HRZoneDistributionChart,
+  HRZonePieChart,
+  PowerZoneChart,
+  TrainingIntensityChart,
+  HRTrendChart,
 } from "../components/AnalyticsCharts";
 import {
   DashboardSkeleton,
   ChartCardSkeleton,
   HeatmapSkeleton,
 } from "../components/Skeletons";
+import { StatsOverview } from "../components/StatsOverview";
 import { useAuthStore } from "../stores/authStore";
 import { useAthlete } from "../hooks/useAthlete";
 import { useAthleteStats } from "../hooks/useAthleteStats";
 import { useActivities } from "../hooks/useActivities";
+import { useAthleteZones } from "../hooks/useAthleteZones";
+import { useActivityStreams } from "../hooks/useActivityStreams";
 import styles from "./Dashboard.module.css";
 
 // Strava API maximum per_page limit - fetch more for analytics charts
@@ -41,7 +49,11 @@ export function Dashboard() {
   const { isAuthenticated, isLoading: authLoading, athlete } = useAuthStore();
 
   // Fetch athlete data to check auth status
-  const { isLoading: athleteLoading, isError: athleteError } = useAthlete();
+  const {
+    data: athleteData,
+    isLoading: athleteLoading,
+    isError: athleteError,
+  } = useAthlete();
 
   // Fetch stats and activities when authenticated
   const { data: stats, isLoading: statsLoading } = useAthleteStats(athlete?.id);
@@ -52,6 +64,10 @@ export function Dashboard() {
     hasNextPage,
     isFetchingNextPage,
   } = useActivities(STRAVA_PER_PAGE);
+
+  // Fetch athlete zones and activity streams for HR/power charts
+  const { data: zonesData, isLoading: zonesLoading } = useAthleteZones();
+  const { data: streamsData, isLoading: streamsLoading } = useActivityStreams();
 
   const isLoading = authLoading || athleteLoading;
 
@@ -86,6 +102,10 @@ export function Dashboard() {
   // Flatten paginated activities
   const activities = activitiesData?.pages.flat() ?? [];
 
+  // Extract zones and streams data
+  const zones = zonesData?.zones ?? null;
+  const streamsMap = streamsData?.streams ?? {};
+
   return (
     <Box className={styles.page}>
       <header className={styles.header}>
@@ -116,37 +136,16 @@ export function Dashboard() {
 
           <Separator size="4" />
 
-          {/* Placeholder sections for data display */}
+          {/* Stats Overview Section */}
           <Box className={styles.section}>
             <Heading size="4" mb="4">
               Stats Overview
             </Heading>
-            {statsLoading ? (
-              <div className={styles.statsGrid}>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className={styles.statCard}>
-                    <Skeleton height="14px" width="80px" mb="2" />
-                    <Skeleton height="32px" width="60px" />
-                  </div>
-                ))}
-              </div>
-            ) : stats ? (
-              <Box className={styles.placeholder}>
-                <Text color="gray" size="2">
-                  Stats data is available! Add your custom visualization here.
-                </Text>
-                <Text
-                  size="1"
-                  color="gray"
-                  style={{ fontFamily: "monospace", marginTop: "8px" }}
-                >
-                  YTD Runs: {stats.ytd_run_totals.count} | YTD Rides:{" "}
-                  {stats.ytd_ride_totals.count}
-                </Text>
-              </Box>
-            ) : (
-              <Text color="gray">No stats available</Text>
-            )}
+            <StatsOverview
+              athlete={athleteData ?? null}
+              stats={stats ?? null}
+              isLoading={statsLoading || athleteLoading}
+            />
           </Box>
 
           <Separator size="4" />
@@ -169,7 +168,7 @@ export function Dashboard() {
 
             {activitiesLoading ? (
               <div className={styles.analyticsGrid}>
-                {Array.from({ length: 6 }).map((_, i) => (
+                {Array.from({ length: 8 }).map((_, i) => (
                   <ChartCardSkeleton key={i} />
                 ))}
                 <div className={styles.fullWidth}>
@@ -181,6 +180,51 @@ export function Dashboard() {
               <div className={styles.analyticsGrid}>
                 <WeeklyVolumeChart
                   activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <TrainingIntensityChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <HRZoneDistributionChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <HRZonePieChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <HRTrendChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+                <PowerZoneChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
                   fetchNextPage={fetchNextPage}
                   hasNextPage={hasNextPage}
                   isFetchingNextPage={isFetchingNextPage}

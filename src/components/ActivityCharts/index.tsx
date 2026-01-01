@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { Box, Heading, Flex, Text, Skeleton } from "@radix-ui/themes";
 import {
-  LineChart,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -348,18 +348,19 @@ export function ActivityCharts({
               ))}
             </div>
 
-            {/* Chart content with animated line */}
+            {/* Chart content with animated bars */}
             <div className={styles.skeletonChartContent}>
-              <svg
-                className={styles.skeletonLineSvg}
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-              >
-                <path
-                  className={styles.skeletonLine}
-                  d="M0,70 Q10,60 20,65 T40,50 T60,55 T80,40 T100,45"
-                />
-              </svg>
+              <div className={styles.skeletonBars}>
+                {[45, 70, 55, 80, 40, 65, 75, 50, 60, 35, 85, 55].map(
+                  (height, i) => (
+                    <div
+                      key={i}
+                      className={styles.skeletonBar}
+                      style={{ height: `${height}%` }}
+                    />
+                  )
+                )}
+              </div>
               <div className={styles.skeletonGridLines}>
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className={styles.skeletonGridLine} />
@@ -436,19 +437,22 @@ export function ActivityCharts({
                 onClick={() => setLockedTooltip(null)}
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
+                  <BarChart
                     data={chartData}
                     margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    barCategoryGap="15%"
                   >
                     <CartesianGrid
                       strokeDasharray="3 3"
                       stroke="var(--gray-a4)"
+                      vertical={false}
                     />
                     <XAxis
                       dataKey="dateLabel"
-                      tick={{ fontSize: 12, fill: "var(--gray-11)" }}
+                      tick={{ fontSize: 11, fill: "var(--gray-11)" }}
                       tickLine={{ stroke: "var(--gray-a6)" }}
                       axisLine={{ stroke: "var(--gray-a6)" }}
+                      interval="preserveStartEnd"
                     />
                     {/* Create a separate Y axis for each metric so each uses its own scale */}
                     {/* Only show the axis when a single metric is selected */}
@@ -457,7 +461,7 @@ export function ActivityCharts({
                         key={metric}
                         yAxisId={metric}
                         hide={selectedMetrics.length > 1}
-                        tick={{ fontSize: 12, fill: "var(--gray-11)" }}
+                        tick={{ fontSize: 11, fill: "var(--gray-11)" }}
                         tickLine={{ stroke: "var(--gray-a6)" }}
                         axisLine={{ stroke: "var(--gray-a6)" }}
                         width={selectedMetrics.length > 1 ? 0 : 55}
@@ -467,84 +471,55 @@ export function ActivityCharts({
                         }
                       />
                     ))}
-                    {!lockedTooltip && <Tooltip content={<CustomTooltip />} />}
+                    {!lockedTooltip && (
+                      <Tooltip
+                        content={<CustomTooltip />}
+                        cursor={{ fill: "var(--gray-a3)" }}
+                      />
+                    )}
                     {selectedMetrics.map((metric) => (
-                      <Line
+                      <Bar
                         key={metric}
-                        type="monotone"
                         dataKey={metric}
                         yAxisId={metric}
-                        stroke={METRICS[metric].color}
-                        strokeWidth={2}
-                        dot={(props) => {
-                          // Hide dot if value is 0 (no activity)
-                          if (props.value === 0) return <g key={props.key} />;
-                          return (
-                            <circle
-                              key={props.key}
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={3}
-                              fill={METRICS[metric].color}
-                            />
-                          );
-                        }}
-                        activeDot={(props) => {
-                          // Hide active dot if value is 0
-                          if (props.value === 0) return <g key={props.key} />;
-                          const dataPoint = props.payload as {
+                        fill={METRICS[metric].color}
+                        radius={[3, 3, 0, 0]}
+                        onClick={(data) => {
+                          const rawData = data as unknown as Record<
+                            string,
+                            unknown
+                          >;
+                          if (!rawData || rawData[metric] === 0) return;
+                          const dataPoint = rawData as unknown as {
                             date: string;
                             dateLabel: string;
                             activities: ActivityInfo[];
                           };
-                          return (
-                            <circle
-                              key={props.key}
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={6}
-                              fill={METRICS[metric].color}
-                              stroke={
-                                lockedTooltip ? "var(--accent-9)" : "none"
-                              }
-                              strokeWidth={2}
-                              style={{ cursor: "pointer" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (lockedTooltip) {
-                                  setLockedTooltip(null);
-                                } else {
-                                  // Collect all metrics for this data point
-                                  const rawData =
-                                    dataPoint as unknown as Record<
-                                      string,
-                                      unknown
-                                    >;
-                                  const metrics = selectedMetrics
-                                    .map((m) => ({
-                                      key: m,
-                                      value: (typeof rawData[m] === "number"
-                                        ? rawData[m]
-                                        : 0) as number,
-                                    }))
-                                    .filter((m) => m.value !== 0);
 
-                                  setLockedTooltip({
-                                    dataPoint,
-                                    metrics,
-                                    position: {
-                                      x: props.cx ?? 0,
-                                      y: props.cy ?? 0,
-                                    },
-                                  });
-                                }
-                              }}
-                            />
-                          );
+                          if (lockedTooltip) {
+                            setLockedTooltip(null);
+                          } else {
+                            const metrics = selectedMetrics
+                              .map((m) => ({
+                                key: m,
+                                value: (typeof rawData[m] === "number"
+                                  ? rawData[m]
+                                  : 0) as number,
+                              }))
+                              .filter((m) => m.value !== 0);
+
+                            // Position tooltip in center of chart area
+                            setLockedTooltip({
+                              dataPoint,
+                              metrics,
+                              position: { x: 200, y: 100 },
+                            });
+                          }
                         }}
+                        style={{ cursor: "pointer" }}
                       />
                     ))}
-                  </LineChart>
+                  </BarChart>
                 </ResponsiveContainer>
 
                 {/* Locked tooltip - rendered as overlay */}

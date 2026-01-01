@@ -11,6 +11,7 @@ import styles from "./ChartCard.module.css";
 const TIME_SPAN_OPTIONS: { value: TimeSpan; label: string }[] = [
   { value: "30d", label: "30d" },
   { value: "90d", label: "90d" },
+  { value: "1y", label: "1Y" },
   { value: "ytd", label: "YTD" },
   { value: "all", label: "All" },
 ];

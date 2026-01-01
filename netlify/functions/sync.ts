@@ -1,5 +1,6 @@
-// Background sync endpoint for fetching activities from Strava
-// Handles rate limiting and progressive sync for new users
+// Smart sync endpoint - only syncs activities we're missing
+// Webhooks keep us up-to-date, so this is primarily for initial import
+// or recovering from missed webhooks
 import type { Context } from "@netlify/functions";
 import {
   withAuth,
@@ -8,15 +9,10 @@ import {
   parseTokensFromCookies,
 } from "./lib/strava.js";
 import {
-  getActiveSyncJob,
-  getSyncJob,
-  createSyncJob,
-  updateSyncJob,
-  markSyncJobComplete,
-  markSyncJobFailed,
-  markSyncJobPaused,
-  upsertActivity,
   getActivityCount,
+  getLatestActivityDate,
+  hasActivity,
+  upsertActivity,
   getStreamsSyncProgress,
 } from "./lib/db.js";
 import {
@@ -29,195 +25,144 @@ import {
 // How many activities to fetch per page (max 200)
 const ACTIVITIES_PER_PAGE = 200;
 
-// GET /api/sync - Get sync status
-// POST /api/sync - Trigger or continue sync
+// GET /api/sync - Get sync status and check if sync is needed
+// POST /api/sync - Sync missing activities only
 export default async function handler(request: Request, _context: Context) {
-  // For GET requests, return sync status (doesn't need full auth)
+  const cookieHeader = request.headers.get("cookie");
+  const { athleteId } = parseTokensFromCookies(cookieHeader);
+
+  if (!athleteId) {
+    return jsonResponse({ error: "Not authenticated" }, 401);
+  }
+
+  // For GET requests, return sync status
   if (request.method === "GET") {
-    const cookieHeader = request.headers.get("cookie");
-    const { athleteId } = parseTokensFromCookies(cookieHeader);
-
-    if (!athleteId) {
-      return jsonResponse({ error: "Not authenticated" }, 401);
-    }
-
-    const syncJob = await getSyncJob(athleteId);
     const activityCount = await getActivityCount(athleteId);
+    const latestActivityDate = await getLatestActivityDate(athleteId);
     const streamsProgress = await getStreamsSyncProgress(athleteId);
 
     return jsonResponse({
-      syncJob: syncJob
-        ? {
-            id: syncJob.id,
-            status: syncJob.status,
-            currentPage: syncJob.current_page,
-            totalActivitiesSynced: syncJob.total_activities_synced,
-            lastError: syncJob.last_error,
-            startedAt: syncJob.started_at,
-            completedAt: syncJob.completed_at,
-          }
-        : null,
       activityCount,
+      latestActivityDate,
       streams: streamsProgress,
+      // No more sync jobs - sync is now stateless and on-demand
+      syncJob: null,
     }, 200);
   }
 
-  // POST - Trigger or continue sync
-  return withAuth(request, async (_req, accessToken, newCookies) => {
-    const cookieHeader = request.headers.get("cookie");
-    const { athleteId } = parseTokensFromCookies(cookieHeader);
-
-    if (!athleteId) {
-      return jsonResponse({ error: "No athlete ID in cookies" }, 400);
-    }
-
-    // Check for existing active sync job
-    let syncJob = await getActiveSyncJob(athleteId);
-
-    // If no active job, create one
-    if (!syncJob) {
-      syncJob = await createSyncJob(athleteId);
-    }
-
-    // If job is pending, mark it as in progress
-    if (syncJob.status === "pending") {
-      await updateSyncJob(syncJob.id, { status: "in_progress" });
-    }
-
+  // POST - Check if sync is needed and sync missing activities
+  return withAuth(request, async (_req, _accessToken, newCookies) => {
     // Get valid access token (might need refresh)
     const validToken = await getValidAccessToken(athleteId);
     if (!validToken) {
-      await markSyncJobFailed(syncJob.id, "Could not get valid access token");
       return jsonResponseWithCookies(
-        { error: "Could not get valid access token", syncJob },
+        { error: "Could not get valid access token", status: "failed" },
         newCookies
       );
     }
 
-    let currentPage = syncJob.current_page;
-    let totalSynced = syncJob.total_activities_synced;
-    let hasMorePages = true;
+    const ourLatestDate = await getLatestActivityDate(athleteId);
+    let totalSynced = 0;
     let lastRateLimit: RateLimitInfo | null = null;
+    let checkedCount = 0;
+    let foundExisting = false;
 
-    // Fetch activities in batches
-    // We'll process multiple pages per request, but check rate limits after each
-    const maxPagesPerRequest = 5; // Process up to 5 pages per function invocation
-    let pagesProcessed = 0;
+    // Fetch activities from Strava, starting from most recent
+    // Stop when we find an activity we already have (means we're up to date)
+    let currentPage = 1;
+    const maxPagesPerRequest = 3; // Limit per invocation to avoid timeout
 
-    while (hasMorePages && pagesProcessed < maxPagesPerRequest) {
-      const result = await fetchActivitiesPage(validToken, currentPage);
+    while (currentPage <= maxPagesPerRequest && !foundExisting) {
+      const result = await fetchActivitiesPage(validToken, currentPage, ACTIVITIES_PER_PAGE);
 
       if (!result) {
-        await markSyncJobFailed(syncJob.id, `Failed to fetch page ${currentPage}`);
         return jsonResponseWithCookies(
-          {
-            error: `Failed to fetch page ${currentPage}`,
-            syncJob: { ...syncJob, status: "failed" },
-          },
+          { error: `Failed to fetch page ${currentPage}`, status: "failed" },
           newCookies
         );
       }
 
       lastRateLimit = result.rateLimit;
 
-      // Check if we got rate limited
+      // Check rate limits
       if (result.activities.length === 0 && shouldPauseForRateLimit(result.rateLimit)) {
-        await markSyncJobPaused(syncJob.id, currentPage, totalSynced);
         return jsonResponseWithCookies(
           {
             status: "paused",
             reason: "rate_limit",
+            totalSynced,
             rateLimit: lastRateLimit,
-            syncJob: {
-              ...syncJob,
-              status: "paused",
-              current_page: currentPage,
-              total_activities_synced: totalSynced,
-            },
           },
           newCookies
         );
       }
 
-      // Process activities
+      // No more activities from Strava
+      if (result.activities.length === 0) {
+        break;
+      }
+
+      // Process activities - stop when we find one we already have
       for (const activity of result.activities) {
-        await upsertActivity(
-          activity.id as number,
-          athleteId,
-          activity,
-          activity.start_date as string
-        );
+        const activityId = activity.id as number;
+        const activityDate = activity.start_date as string;
+        checkedCount++;
+
+        // If we have a latest date and this activity is older, we're done
+        // (assuming Strava returns activities in chronological order, newest first)
+        if (ourLatestDate && activityDate <= ourLatestDate) {
+          // Double-check we actually have this activity
+          const exists = await hasActivity(activityId);
+          if (exists) {
+            foundExisting = true;
+            break;
+          }
+        }
+
+        // We don't have this activity - save it
+        await upsertActivity(activityId, athleteId, activity, activityDate);
         totalSynced++;
       }
 
-      // Check if we've reached the end
-      if (result.activities.length < ACTIVITIES_PER_PAGE) {
-        hasMorePages = false;
-      } else {
-        currentPage++;
-        pagesProcessed++;
-
-        // Check rate limits before next page
-        if (shouldPauseForRateLimit(result.rateLimit)) {
-          await markSyncJobPaused(syncJob.id, currentPage, totalSynced);
-          return jsonResponseWithCookies(
-            {
-              status: "paused",
-              reason: "rate_limit",
-              rateLimit: lastRateLimit,
-              syncJob: {
-                ...syncJob,
-                status: "paused",
-                current_page: currentPage,
-                total_activities_synced: totalSynced,
-              },
-            },
-            newCookies
-          );
-        }
+      // If we didn't find an existing activity but got fewer than a full page,
+      // we've reached the end of the user's activities
+      if (!foundExisting && result.activities.length < ACTIVITIES_PER_PAGE) {
+        break;
       }
-    }
 
-    // Update sync job status
-    if (!hasMorePages) {
-      await markSyncJobComplete(syncJob.id, totalSynced);
-      return jsonResponseWithCookies(
-        {
-          status: "completed",
-          totalSynced,
-          syncJob: {
-            ...syncJob,
-            status: "completed",
-            total_activities_synced: totalSynced,
+      // Check rate limits before next page
+      if (shouldPauseForRateLimit(result.rateLimit)) {
+        return jsonResponseWithCookies(
+          {
+            status: "paused",
+            reason: "rate_limit",
+            totalSynced,
+            rateLimit: lastRateLimit,
           },
-        },
-        newCookies
-      );
+          newCookies
+        );
+      }
+
+      currentPage++;
     }
 
-    // More pages to process, save progress
-    await updateSyncJob(syncJob.id, {
-      status: "in_progress",
-      current_page: currentPage,
-      total_activities_synced: totalSynced,
-    });
+    // Determine if there might be more to sync
+    // If we hit the page limit without finding existing activity, there might be more
+    const hasMore = !foundExisting && currentPage > maxPagesPerRequest;
+
+    const activityCount = await getActivityCount(athleteId);
 
     return jsonResponseWithCookies(
       {
-        status: "in_progress",
-        currentPage,
+        status: hasMore ? "in_progress" : "completed",
         totalSynced,
-        hasMore: true,
+        checkedCount,
+        hasMore,
+        foundExisting,
+        activityCount,
         rateLimit: lastRateLimit,
-        syncJob: {
-          ...syncJob,
-          status: "in_progress",
-          current_page: currentPage,
-          total_activities_synced: totalSynced,
-        },
       },
       newCookies
     );
   });
 }
-

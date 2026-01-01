@@ -4,7 +4,7 @@ import {
   createTokenCookies,
   getSiteUrl,
 } from "./lib/strava.js";
-import { upsertUser, createSyncJob } from "./lib/db.js";
+import { upsertUser } from "./lib/db.js";
 
 export default async function handler(request: Request, _context: Context) {
   try {
@@ -45,8 +45,10 @@ export default async function handler(request: Request, _context: Context) {
       token_expires_at: tokens.expires_at,
     });
 
-    // Create a sync job for initial activity import
-    await createSyncJob(athlete.id);
+    // Note: We don't create a sync job here anymore.
+    // The dashboard will check if activities need to be synced by comparing
+    // our latest activity date with Strava's. This is more efficient since
+    // webhooks keep us up-to-date after the initial sync.
 
     const cookies = createTokenCookies(
       tokens.access_token,
