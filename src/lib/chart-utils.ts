@@ -1224,6 +1224,7 @@ export interface AggregatedZoneData {
   totalSeconds: number;
   percentage: number;
   color: string;
+  [key: string]: unknown;
 }
 
 export function aggregateZoneData(

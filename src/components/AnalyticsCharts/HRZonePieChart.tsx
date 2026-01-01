@@ -15,7 +15,11 @@ import {
   HR_ZONE_COLORS,
   HR_ZONE_LABELS,
 } from "../../lib/chart-utils";
-import type { Activity, ActivityStreamsMap, AthleteZones } from "../../lib/strava-types";
+import type {
+  Activity,
+  ActivityStreamsMap,
+  AthleteZones,
+} from "../../lib/strava-types";
 
 interface HRZonePieChartProps {
   activities: Activity[];
@@ -107,7 +111,10 @@ function HRZonePieContent({
           {data.map((entry, index) => (
             <Cell
               key={`cell-${index}`}
-              fill={HR_ZONE_COLORS[entry.zone - 1] || HR_ZONE_COLORS[HR_ZONE_COLORS.length - 1]}
+              fill={
+                HR_ZONE_COLORS[entry.zone - 1] ||
+                HR_ZONE_COLORS[HR_ZONE_COLORS.length - 1]
+              }
               stroke="var(--gray-1)"
               strokeWidth={2}
             />
@@ -147,7 +154,7 @@ function HRZonePieContent({
           align="right"
           verticalAlign="middle"
           wrapperStyle={{ fontSize: "0.7rem", paddingLeft: "1rem" }}
-          formatter={(value, entry) => {
+          formatter={(_, entry) => {
             const item = entry.payload as (typeof data)[0];
             return (
               <span style={{ color: "var(--gray-11)" }}>
@@ -214,4 +221,3 @@ export function HRZonePieChart({
     </ChartCard>
   );
 }
-

@@ -13,12 +13,13 @@ import {
 } from "recharts";
 import { ChartCard } from "./ChartCard";
 import chartStyles from "./ChartCard.module.css";
-import {
-  getHRTrendData,
-  formatLocalDate,
-  HR_ZONE_COLORS,
-} from "../../lib/chart-utils";
-import type { Activity, ActivityStreamsMap, AthleteZones, HeartRateZoneRange } from "../../lib/strava-types";
+import { getHRTrendData, HR_ZONE_COLORS } from "../../lib/chart-utils";
+import type {
+  Activity,
+  ActivityStreamsMap,
+  AthleteZones,
+  HeartRateZoneRange,
+} from "../../lib/strava-types";
 
 interface HRTrendChartProps {
   activities: Activity[];
@@ -69,22 +70,7 @@ function HRTrendContent({
     };
   }, [filteredActivities, streamsMap, zones, metric]);
 
-  if (data.length === 0) {
-    return (
-      <div className={chartStyles.emptyState}>
-        No HR data available for this period
-      </div>
-    );
-  }
-
-  // Calculate y-axis domain
-  const values = data.map((d) => d.value).filter((v): v is number => v !== null);
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
-  const yMin = Math.max(0, Math.floor(minVal / 10) * 10 - 10);
-  const yMax = Math.ceil(maxVal / 10) * 10 + 10;
-
-  // Calculate rolling average (7-day window)
+  // Calculate rolling average (7-day window) - must be before early return
   const rollingAvg = useMemo(() => {
     const windowSize = 7;
     const dateMap = new Map<string, number[]>();
@@ -107,7 +93,11 @@ function HRTrendContent({
 
     // Then calculate rolling average
     const sortedDates = Array.from(dailyAvg.keys()).sort();
-    const result: Array<{ date: string; dateLabel: string; rollingAvg: number }> = [];
+    const result: Array<{
+      date: string;
+      dateLabel: string;
+      rollingAvg: number;
+    }> = [];
 
     sortedDates.forEach((date, i) => {
       const windowStart = Math.max(0, i - windowSize + 1);
@@ -127,6 +117,23 @@ function HRTrendContent({
 
     return result;
   }, [data]);
+
+  if (data.length === 0) {
+    return (
+      <div className={chartStyles.emptyState}>
+        No HR data available for this period
+      </div>
+    );
+  }
+
+  // Calculate y-axis domain
+  const values = data
+    .map((d) => d.value)
+    .filter((v): v is number => v !== null);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
+  const yMin = Math.max(0, Math.floor(minVal / 10) * 10 - 10);
+  const yMax = Math.ceil(maxVal / 10) * 10 + 10;
 
   // Render zone background bands
   const renderZoneBands = (zoneRanges: HeartRateZoneRange[]) => {
@@ -153,9 +160,7 @@ function HRTrendContent({
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <ComposedChart
-        margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-      >
+      <ComposedChart margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-a4)" />
 
         {/* Zone background bands */}
@@ -196,13 +201,17 @@ function HRTrendContent({
 
             // Determine the HR value - could be from scatter (value) or line (rollingAvg)
             const hrValue = d.value ?? d.rollingAvg ?? firstPayload.value;
-            const isRollingAvg = d.rollingAvg !== undefined && d.value === undefined;
+            const isRollingAvg =
+              d.rollingAvg !== undefined && d.value === undefined;
 
             // Find zone
             let zoneName = "";
             if (zoneRanges.length > 0 && hrValue) {
               for (let i = 0; i < zoneRanges.length; i++) {
-                if (hrValue >= zoneRanges[i].min && hrValue < zoneRanges[i].max) {
+                if (
+                  hrValue >= zoneRanges[i].min &&
+                  hrValue < zoneRanges[i].max
+                ) {
                   zoneName = `Zone ${i + 1}`;
                   break;
                 }
@@ -221,8 +230,9 @@ function HRTrendContent({
                   />
                   {isRollingAvg
                     ? `7-day Avg: ${Math.round(hrValue)} bpm`
-                    : `${metric === "avg" ? "Avg" : "Max"} HR: ${Math.round(hrValue)} bpm`
-                  }
+                    : `${metric === "avg" ? "Avg" : "Max"} HR: ${Math.round(
+                        hrValue
+                      )} bpm`}
                 </div>
                 {zoneName && (
                   <div style={{ color: "var(--gray-10)", fontSize: "0.75rem" }}>
@@ -230,7 +240,13 @@ function HRTrendContent({
                   </div>
                 )}
                 {d.sportType && (
-                  <div style={{ color: "var(--gray-10)", fontSize: "0.75rem", marginTop: "0.25rem" }}>
+                  <div
+                    style={{
+                      color: "var(--gray-10)",
+                      fontSize: "0.75rem",
+                      marginTop: "0.25rem",
+                    }}
+                  >
                     {d.sportType}
                   </div>
                 )}
@@ -327,4 +343,3 @@ export function HRTrendChart({
     </ChartCard>
   );
 }
-

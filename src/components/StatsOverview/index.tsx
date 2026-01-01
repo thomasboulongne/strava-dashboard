@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { Athlete, AthleteStats, ActivityTotal } from "../../lib/strava-types";
+import type {
+  Athlete,
+  AthleteStats,
+  ActivityTotal,
+} from "../../lib/strava-types";
 import styles from "./StatsOverview.module.css";
 
 type Period = "recent" | "ytd" | "all";
@@ -11,7 +15,10 @@ interface StatsOverviewProps {
 }
 
 // Format distance based on measurement preference
-function formatDistance(meters: number, preference: "feet" | "meters" = "meters"): string {
+function formatDistance(
+  meters: number,
+  preference: "feet" | "meters" = "meters"
+): string {
   if (preference === "feet") {
     const miles = meters / 1609.344;
     return miles >= 1000
@@ -19,13 +26,14 @@ function formatDistance(meters: number, preference: "feet" | "meters" = "meters"
       : `${miles.toFixed(1)} mi`;
   }
   const km = meters / 1000;
-  return km >= 1000
-    ? `${(km / 1000).toFixed(1)}k km`
-    : `${km.toFixed(1)} km`;
+  return km >= 1000 ? `${(km / 1000).toFixed(1)}k km` : `${km.toFixed(1)} km`;
 }
 
 // Format elevation based on measurement preference
-function formatElevation(meters: number, preference: "feet" | "meters" = "meters"): string {
+function formatElevation(
+  meters: number,
+  preference: "feet" | "meters" = "meters"
+): string {
   if (preference === "feet") {
     const feet = meters * 3.28084;
     return feet >= 10000
@@ -61,21 +69,42 @@ function formatMemberSince(dateString: string): string {
 function SportIcon({ type }: { type: "ride" | "run" | "swim" }) {
   const icons = {
     ride: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <circle cx="5.5" cy="17.5" r="3.5" />
         <circle cx="18.5" cy="17.5" r="3.5" />
         <path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5V14l-3-3 4-3 2 3h2" />
       </svg>
     ),
     run: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <circle cx="13" cy="4" r="2" />
         <path d="M7 21l3-4-2-1-3 5" />
         <path d="M16 21l-2-4-3-1 1-3 3 1 3-4 2 1-3 4 1 3-2 3" />
       </svg>
     ),
     swim: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M2 20c2-1 4-1 6 0s4 1 6 0 4-1 6 0" />
         <path d="M2 17c2-1 4-1 6 0s4 1 6 0 4-1 6 0" />
         <circle cx="9" cy="8" r="2" />
@@ -111,7 +140,11 @@ function ActivityRowSkeleton() {
   );
 }
 
-export function StatsOverview({ athlete, stats, isLoading = false }: StatsOverviewProps) {
+export function StatsOverview({
+  athlete,
+  stats,
+  isLoading = false,
+}: StatsOverviewProps) {
   const [period, setPeriod] = useState<Period>("ytd");
 
   const measurementPref = athlete?.measurement_preference ?? "meters";
@@ -165,15 +198,6 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
     stats.all_ride_totals.distance +
     stats.all_run_totals.distance +
     stats.all_swim_totals.distance;
-
-  const allTimeActivities =
-    stats.all_ride_totals.count +
-    stats.all_run_totals.count +
-    stats.all_swim_totals.count;
-
-  const allTimeElevation =
-    stats.all_ride_totals.elevation_gain +
-    stats.all_run_totals.elevation_gain;
 
   const allTimeTime =
     stats.all_ride_totals.moving_time +
@@ -262,7 +286,10 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
           <span className={styles.statLabel}>Most Climbing</span>
           <span className={styles.statValue}>
             {stats.biggest_climb_elevation_gain
-              ? formatElevation(stats.biggest_climb_elevation_gain, measurementPref)
+              ? formatElevation(
+                  stats.biggest_climb_elevation_gain,
+                  measurementPref
+                )
               : "—"}
           </span>
         </div>
@@ -280,7 +307,9 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
             {(["recent", "ytd", "all"] as Period[]).map((p) => (
               <button
                 key={p}
-                className={`${styles.periodBtn} ${period === p ? styles.periodBtnActive : ""}`}
+                className={`${styles.periodBtn} ${
+                  period === p ? styles.periodBtnActive : ""
+                }`}
                 onClick={() => setPeriod(p)}
               >
                 {p === "recent" ? "4W" : p === "ytd" ? "YTD" : "All"}
@@ -300,7 +329,9 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
               </div>
               <div className={styles.activityStats}>
                 <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>{rideStats.count}</span>
+                  <span className={styles.activityStatValue}>
+                    {rideStats.count}
+                  </span>
                   <span className={styles.activityStatLabel}>rides</span>
                 </div>
                 <div className={styles.activityStat}>
@@ -333,7 +364,9 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
               </div>
               <div className={styles.activityStats}>
                 <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>{runStats.count}</span>
+                  <span className={styles.activityStatValue}>
+                    {runStats.count}
+                  </span>
                   <span className={styles.activityStatLabel}>runs</span>
                 </div>
                 <div className={styles.activityStat}>
@@ -366,7 +399,9 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
               </div>
               <div className={styles.activityStats}>
                 <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>{swimStats.count}</span>
+                  <span className={styles.activityStatValue}>
+                    {swimStats.count}
+                  </span>
                   <span className={styles.activityStatLabel}>swims</span>
                 </div>
                 <div className={styles.activityStat}>
@@ -399,4 +434,3 @@ export function StatsOverview({ athlete, stats, isLoading = false }: StatsOvervi
     </div>
   );
 }
-
