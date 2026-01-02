@@ -1,8 +1,5 @@
 // Neon Postgres database client and helpers
-import { neon, neonConfig } from "@neondatabase/serverless";
-
-// Configure for serverless environment
-neonConfig.fetchConnectionCache = true;
+import { neon } from "@neondatabase/serverless";
 
 // Get database connection
 export function getDb() {
@@ -105,6 +102,21 @@ export interface DbSyncJob {
   updated_at: Date;
 }
 
+// Training workout from coach's plan
+export interface DbTrainingWorkout {
+  id: number;
+  athlete_id: number;
+  workout_date: Date;
+  session_name: string;
+  duration_target_minutes: number | null;
+  intensity_target: string | null;
+  notes: string | null;
+  matched_activity_id: number | null;
+  is_manually_linked: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Schema initialization - run once to set up tables
 export async function initializeSchema() {
   const sql = getDb();
@@ -197,6 +209,32 @@ export async function initializeSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Training workouts table - stores coach's training plan
+  await sql`
+    CREATE TABLE IF NOT EXISTS training_workouts (
+      id SERIAL PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      workout_date DATE NOT NULL,
+      session_name TEXT NOT NULL,
+      duration_target_minutes INTEGER,
+      intensity_target TEXT,
+      notes TEXT,
+      matched_activity_id BIGINT REFERENCES activities(id) ON DELETE SET NULL,
+      is_manually_linked BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(athlete_id, workout_date)
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_training_workouts_athlete_id ON training_workouts(athlete_id)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_training_workouts_date ON training_workouts(workout_date)
   `;
 
   return { success: true };
@@ -738,4 +776,214 @@ export async function zonesNeedRefresh(athleteId: number): Promise<boolean> {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   return new Date(zones.updated_at) < sevenDaysAgo;
+}
+
+// Training workout operations
+export async function upsertTrainingWorkout(workout: {
+  athlete_id: number;
+  workout_date: string; // YYYY-MM-DD format
+  session_name: string;
+  duration_target_minutes: number | null;
+  intensity_target: string | null;
+  notes: string | null;
+}): Promise<DbTrainingWorkout> {
+  const sql = getDb();
+
+  const result = await sql`
+    INSERT INTO training_workouts (
+      athlete_id, workout_date, session_name, duration_target_minutes,
+      intensity_target, notes, updated_at
+    )
+    VALUES (
+      ${workout.athlete_id}, ${workout.workout_date}, ${workout.session_name},
+      ${workout.duration_target_minutes}, ${workout.intensity_target},
+      ${workout.notes}, NOW()
+    )
+    ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
+      session_name = EXCLUDED.session_name,
+      duration_target_minutes = EXCLUDED.duration_target_minutes,
+      intensity_target = EXCLUDED.intensity_target,
+      notes = EXCLUDED.notes,
+      updated_at = NOW()
+    RETURNING *
+  `;
+
+  return result[0] as DbTrainingWorkout;
+}
+
+export async function upsertTrainingWorkoutsBatch(
+  workouts: Array<{
+    athlete_id: number;
+    workout_date: string;
+    session_name: string;
+    duration_target_minutes: number | null;
+    intensity_target: string | null;
+    notes: string | null;
+  }>
+): Promise<number> {
+  if (workouts.length === 0) return 0;
+
+  const sql = getDb();
+
+  // Build values for batch insert
+  const values = workouts
+    .map(
+      (w) =>
+        `(${w.athlete_id}, '${w.workout_date}', '${w.session_name.replace(
+          /'/g,
+          "''"
+        )}', ${w.duration_target_minutes ?? "NULL"}, ${
+          w.intensity_target
+            ? `'${w.intensity_target.replace(/'/g, "''")}'`
+            : "NULL"
+        }, ${
+          w.notes ? `'${w.notes.replace(/'/g, "''")}'` : "NULL"
+        }, NOW(), NOW())`
+    )
+    .join(", ");
+
+  await sql`
+    INSERT INTO training_workouts (
+      athlete_id, workout_date, session_name, duration_target_minutes,
+      intensity_target, notes, created_at, updated_at
+    )
+    VALUES ${sql.unsafe(values)}
+    ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
+      session_name = EXCLUDED.session_name,
+      duration_target_minutes = EXCLUDED.duration_target_minutes,
+      intensity_target = EXCLUDED.intensity_target,
+      notes = EXCLUDED.notes,
+      updated_at = NOW()
+  `;
+
+  return workouts.length;
+}
+
+export async function getTrainingWorkoutsForWeek(
+  athleteId: number,
+  weekStart: string // YYYY-MM-DD format (Monday of the week)
+): Promise<DbTrainingWorkout[]> {
+  const sql = getDb();
+
+  // Calculate week end (7 days from start) using simple date arithmetic
+  // weekStart is YYYY-MM-DD, add 7 days
+  const [year, month, day] = weekStart.split("-").map(Number);
+  const endDate = new Date(year, month - 1, day + 7);
+  const weekEnd = `${endDate.getFullYear()}-${String(
+    endDate.getMonth() + 1
+  ).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+
+  const result = await sql`
+    SELECT * FROM training_workouts
+    WHERE athlete_id = ${athleteId}
+      AND workout_date >= ${weekStart}
+      AND workout_date < ${weekEnd}
+    ORDER BY workout_date ASC
+  `;
+
+  return result as DbTrainingWorkout[];
+}
+
+export async function getTrainingWorkoutById(
+  workoutId: number
+): Promise<DbTrainingWorkout | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM training_workouts WHERE id = ${workoutId}
+  `;
+  return (result[0] as DbTrainingWorkout) || null;
+}
+
+export async function linkActivityToWorkout(
+  workoutId: number,
+  activityId: number,
+  isManual: boolean = false
+): Promise<DbTrainingWorkout | null> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE training_workouts
+    SET matched_activity_id = ${activityId},
+        is_manually_linked = ${isManual},
+        updated_at = NOW()
+    WHERE id = ${workoutId}
+    RETURNING *
+  `;
+  return (result[0] as DbTrainingWorkout) || null;
+}
+
+export async function unlinkActivityFromWorkout(
+  workoutId: number
+): Promise<DbTrainingWorkout | null> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE training_workouts
+    SET matched_activity_id = NULL,
+        is_manually_linked = FALSE,
+        updated_at = NOW()
+    WHERE id = ${workoutId}
+    RETURNING *
+  `;
+  return (result[0] as DbTrainingWorkout) || null;
+}
+
+export async function deleteTrainingWorkoutsForWeek(
+  athleteId: number,
+  weekStart: string
+): Promise<number> {
+  const sql = getDb();
+
+  // Calculate week end using local date arithmetic
+  const [year, month, day] = weekStart.split("-").map(Number);
+  const endDate = new Date(year, month - 1, day + 7);
+  const weekEnd = `${endDate.getFullYear()}-${String(
+    endDate.getMonth() + 1
+  ).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+
+  const result = await sql`
+    DELETE FROM training_workouts
+    WHERE athlete_id = ${athleteId}
+      AND workout_date >= ${weekStart}
+      AND workout_date < ${weekEnd}
+    RETURNING id
+  `;
+
+  return result.length;
+}
+
+// Get activities for a specific date (for matching)
+// Uses the start_date_local from activity data for accurate local date matching
+export async function getActivitiesForDate(
+  athleteId: number,
+  date: string // YYYY-MM-DD format
+): Promise<DbActivity[]> {
+  const sql = getDb();
+
+  const result = await sql`
+    SELECT * FROM activities
+    WHERE athlete_id = ${athleteId}
+      AND SUBSTRING(data->>'start_date_local' FROM 1 FOR 10) = ${date}
+    ORDER BY start_date ASC
+  `;
+
+  return result as DbActivity[];
+}
+
+// Get activities for a date range (for auto-matching across a week)
+// Uses the start_date_local from activity data for accurate local date matching
+export async function getActivitiesForDateRange(
+  athleteId: number,
+  startDate: string,
+  endDate: string
+): Promise<DbActivity[]> {
+  const sql = getDb();
+
+  const result = await sql`
+    SELECT * FROM activities
+    WHERE athlete_id = ${athleteId}
+      AND SUBSTRING(data->>'start_date_local' FROM 1 FOR 10) >= ${startDate}
+      AND SUBSTRING(data->>'start_date_local' FROM 1 FOR 10) < ${endDate}
+    ORDER BY start_date ASC
+  `;
+
+  return result as DbActivity[];
 }

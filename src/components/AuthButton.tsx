@@ -1,10 +1,12 @@
 import { Avatar, Flex, Text, Button } from "@radix-ui/themes";
+import { Link, useLocation } from "react-router";
 import { useAuthStore } from "../stores/authStore";
 import { getAuthUrl } from "../lib/api";
 import styles from "./AuthButton.module.css";
 
 export function AuthButton() {
   const { isAuthenticated, isLoading, athlete } = useAuthStore();
+  const location = useLocation();
 
   const handleLogin = async () => {
     try {
@@ -30,6 +32,22 @@ export function AuthButton() {
   if (isAuthenticated && athlete) {
     return (
       <Flex align="center" gap="3">
+        {/* Navigation Links */}
+        <Flex gap="2" className={styles.navLinks}>
+          <Link
+            to="/dashboard"
+            className={`${styles.navLink} ${location.pathname === "/dashboard" ? styles.navLinkActive : ""}`}
+          >
+            Dashboard
+          </Link>
+          <Link
+            to="/plan"
+            className={`${styles.navLink} ${location.pathname === "/plan" ? styles.navLinkActive : ""}`}
+          >
+            Training Plan
+          </Link>
+        </Flex>
+
         <Flex align="center" gap="2">
           <Avatar
             src={athlete.profile}
@@ -37,7 +55,7 @@ export function AuthButton() {
             size="2"
             radius="full"
           />
-          <Text size="2" weight="medium">
+          <Text size="2" weight="medium" className={styles.athleteName}>
             {athlete.firstname} {athlete.lastname}
           </Text>
         </Flex>

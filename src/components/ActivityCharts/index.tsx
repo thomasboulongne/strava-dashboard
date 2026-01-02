@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Box, Heading, Flex, Text, Skeleton } from "@radix-ui/themes";
 import {
   BarChart,
@@ -16,10 +16,10 @@ import {
   type ActivityInfo,
   METRICS,
   getDateRange,
-  filterActivitiesByType,
+  filterActivitiesBySportType,
   filterActivitiesByDateRange,
   aggregateActivitiesByDate,
-  getUniqueActivityTypeGroups,
+  getUniqueSportTypes,
   formatMetricValue,
 } from "../../lib/chart-utils";
 import type { Activity } from "../../lib/strava-types";
@@ -112,7 +112,9 @@ interface ActivityChartsProps {
 function CustomTooltip({
   active,
   payload,
+  coordinate,
   isLocked = false,
+  onPositionChange,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -121,9 +123,16 @@ function CustomTooltip({
     color: string;
     payload: { date: string; dateLabel: string; activities: ActivityInfo[] };
   }>;
+  coordinate?: { x: number; y: number };
   isLocked?: boolean;
+  onPositionChange?: (position: { x: number; y: number }) => void;
 }) {
   if (!active || !payload?.length) return null;
+
+  // Track tooltip position when it changes
+  if (coordinate && onPositionChange) {
+    onPositionChange(coordinate);
+  }
 
   // Filter out entries with 0 value (no activity)
   const nonZeroPayload = payload.filter((entry) => entry.value !== 0);
@@ -198,11 +207,6 @@ function CustomTooltip({
           </div>
         );
       })}
-
-      {/* Hint to click */}
-      {!isLocked && activities.length > 0 && (
-        <div className={styles.tooltipHint}>Click dot to pin</div>
-      )}
     </div>
   );
 }
@@ -227,7 +231,7 @@ export function ActivityCharts({
     string[] | null
   >(null);
   const [selectedMetrics, setSelectedMetrics] = useState<MetricKey[]>([
-    "distance",
+    "moving_time",
   ]);
 
   // State for locked tooltip
@@ -241,9 +245,15 @@ export function ActivityCharts({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Ref to track last tooltip position from Recharts
+  const lastTooltipPosition = useRef<{ x: number; y: number }>({
+    x: 200,
+    y: 100,
+  });
+
   // Get available activity types from the data
   const availableActivityTypes = useMemo(
-    () => getUniqueActivityTypeGroups(activities),
+    () => getUniqueSportTypes(activities),
     [activities]
   );
 
@@ -267,8 +277,11 @@ export function ActivityCharts({
     // Get date range for current page
     const { start, end } = getDateRange(timeSpan, page, earliestActivityDate);
 
-    // Filter by activity types
-    let filtered = filterActivitiesByType(activities, effectiveSelectedTypes);
+    // Filter by activity sport types
+    let filtered = filterActivitiesBySportType(
+      activities,
+      effectiveSelectedTypes
+    );
 
     // Filter by date range
     filtered = filterActivitiesByDateRange(filtered, start, end);
@@ -308,9 +321,20 @@ export function ActivityCharts({
   const dateRangeLabel = useMemo(() => {
     if (timeSpan === "all") return "All Time";
     const { start, end } = getDateRange(timeSpan, page);
-    const formatDate = (d: Date) =>
+    const sameYear = start.getFullYear() === end.getFullYear();
+    const formatDateWithYear = (d: Date) =>
+      d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    const formatDateNoYear = (d: Date) =>
       d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return `${formatDate(start)} - ${formatDate(end)}`;
+
+    if (sameYear) {
+      return `${formatDateNoYear(start)} - ${formatDateWithYear(end)}`;
+    }
+    return `${formatDateWithYear(start)} - ${formatDateWithYear(end)}`;
   }, [timeSpan, page]);
 
   // Handle time span change - reset page
@@ -392,8 +416,6 @@ export function ActivityCharts({
     );
   }
 
-  console.log("activities", activities);
-
   return (
     <Box className={styles.chartContainer}>
       <Flex justify="between" align="center" mb="4">
@@ -473,7 +495,13 @@ export function ActivityCharts({
                     ))}
                     {!lockedTooltip && (
                       <Tooltip
-                        content={<CustomTooltip />}
+                        content={
+                          <CustomTooltip
+                            onPositionChange={(pos) => {
+                              lastTooltipPosition.current = pos;
+                            }}
+                          />
+                        }
                         cursor={{ fill: "var(--gray-a3)" }}
                       />
                     )}
@@ -484,7 +512,10 @@ export function ActivityCharts({
                         yAxisId={metric}
                         fill={METRICS[metric].color}
                         radius={[3, 3, 0, 0]}
-                        onClick={(data) => {
+                        onClick={(data, _index, event) => {
+                          // Stop propagation to prevent chartArea onClick from clearing tooltip
+                          event.stopPropagation();
+
                           const rawData = data as unknown as Record<
                             string,
                             unknown
@@ -508,11 +539,11 @@ export function ActivityCharts({
                               }))
                               .filter((m) => m.value !== 0);
 
-                            // Position tooltip in center of chart area
+                            // Use the position from the hover tooltip
                             setLockedTooltip({
                               dataPoint,
                               metrics,
-                              position: { x: 200, y: 100 },
+                              position: { ...lastTooltipPosition.current },
                             });
                           }
                         }}

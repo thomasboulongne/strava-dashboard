@@ -259,3 +259,99 @@ export interface ActivityZoneBreakdown {
   powerZones?: ZoneTimeData[];
 }
 
+// Training Plan Types
+export interface TrainingWorkout {
+  id: number;
+  athlete_id: number;
+  workout_date: string; // YYYY-MM-DD
+  session_name: string;
+  duration_target_minutes: number | null;
+  intensity_target: string | null;
+  notes: string | null;
+  matched_activity_id: number | null;
+  is_manually_linked: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Interval compliance types
+export interface IntervalResult {
+  index: number; // 1, 2, 3...
+  durationSec: number; // Actual duration
+  targetDurationSec: number;
+  avgHR: number;
+  targetZone: number;
+  status: "completed" | "too_short" | "too_long" | "wrong_zone" | "missing";
+}
+
+export interface IntervalCompliance {
+  expected: number; // e.g., 3
+  completed: number; // e.g., 2
+  score: number; // 0-100
+  targetDurationSec: number;
+  targetZone: number;
+  intervals: IntervalResult[];
+}
+
+export interface ComplianceBreakdown {
+  duration: number | null;
+  durationRatio: number | null; // Actual/target ratio
+  hrZone: number | null;
+  hrDetails: {
+    actualAvg: number;
+    targetZone: number; // 1-5 zone index
+    targetMin: number;
+    targetMax: number;
+    direction: "on_target" | "too_low" | "too_high";
+  } | null;
+  intervals: IntervalCompliance | null; // Interval structure compliance
+  activityDone: number;
+}
+
+export interface ComplianceScore {
+  score: number;
+  breakdown: ComplianceBreakdown;
+}
+
+export interface TrainingWorkoutWithMatch extends TrainingWorkout {
+  matched_activity: {
+    id: number;
+    data: Activity;
+  } | null;
+  compliance: ComplianceScore;
+}
+
+export interface UnmatchedActivity {
+  id: number;
+  data: Activity;
+}
+
+export interface TrainingPlanResponse {
+  workouts: TrainingWorkoutWithMatch[];
+  unmatchedActivities: UnmatchedActivity[];
+  weekStart: string;
+}
+
+export interface ImportPlanResponse {
+  success: boolean;
+  imported: number;
+  workouts: Array<{
+    athlete_id: number;
+    workout_date: string;
+    session_name: string;
+    duration_target_minutes: number | null;
+    intensity_target: string | null;
+    notes: string | null;
+  }>;
+  parseErrors: string[];
+}
+
+export interface LinkActivityResponse {
+  success: boolean;
+  workout: TrainingWorkout;
+}
+
+export interface DeletePlanResponse {
+  success: boolean;
+  deleted: number;
+}

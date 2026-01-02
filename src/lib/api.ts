@@ -6,6 +6,10 @@ import type {
   Activity,
   AthleteZonesResponse,
   ActivityStreamsResponse,
+  TrainingPlanResponse,
+  ImportPlanResponse,
+  LinkActivityResponse,
+  DeletePlanResponse,
 } from "./strava-types";
 
 // Use VITE_API_URL env var if set, otherwise default to relative /api path
@@ -161,6 +165,49 @@ export async function getActivityStreams(
     return fetchApi<ActivityStreamsResponse>(`/activity-streams?limit=${limit}`);
   }
   return fetchApi<ActivityStreamsResponse>("/activity-streams");
+}
+
+// Training Plan endpoints
+export async function getTrainingPlan(
+  weekStart: string // YYYY-MM-DD format
+): Promise<TrainingPlanResponse> {
+  return fetchApi<TrainingPlanResponse>(`/training-plans?week=${weekStart}`);
+}
+
+export async function importTrainingPlan(
+  markdown: string,
+  referenceDate?: string
+): Promise<ImportPlanResponse> {
+  return fetchApi<ImportPlanResponse>("/training-plans", {
+    method: "POST",
+    body: JSON.stringify({ markdown, referenceDate }),
+  });
+}
+
+export async function linkActivityToWorkout(
+  workoutId: number,
+  activityId: number
+): Promise<LinkActivityResponse> {
+  return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}/link`, {
+    method: "PATCH",
+    body: JSON.stringify({ activityId }),
+  });
+}
+
+export async function unlinkActivityFromWorkout(
+  workoutId: number
+): Promise<LinkActivityResponse> {
+  return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}/unlink`, {
+    method: "PATCH",
+  });
+}
+
+export async function deleteTrainingPlan(
+  weekStart: string
+): Promise<DeletePlanResponse> {
+  return fetchApi<DeletePlanResponse>(`/training-plans?week=${weekStart}`, {
+    method: "DELETE",
+  });
 }
 
 export { ApiError };

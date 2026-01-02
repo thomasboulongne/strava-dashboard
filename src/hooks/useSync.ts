@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getSyncStatus,
   triggerSync,
@@ -16,10 +16,16 @@ const ACTIVE_SYNC_POLL_INTERVAL = 3000;
 
 export function useSync() {
   const queryClient = useQueryClient();
+  // State for render-time values
+  const [syncInProgress, setSyncInProgress] = useState(false);
+  const [streamsSyncInProgress, setStreamsSyncInProgress] = useState(false);
+  // Refs for synchronous access in callbacks/effects
   const syncInProgressRef = useRef(false);
   const streamsSyncInProgressRef = useRef(false);
   const hasCheckedInitialSyncRef = useRef(false);
-  const streamsSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamsSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   // Query for sync status
   const {
@@ -41,84 +47,90 @@ export function useSync() {
   });
 
   // Mutation to trigger/continue activity sync
-  const {
-    mutate: triggerSyncMutation,
-    isPending: isSyncing,
-  } = useMutation<SyncTriggerResponse>({
-    mutationFn: triggerSync,
-    onSuccess: (data) => {
-      // Invalidate activities cache when sync makes progress
-      if (data.totalSynced && data.totalSynced > 0) {
-        queryClient.invalidateQueries({ queryKey: ["activities"] });
-      }
+  const { mutate: triggerSyncMutation, isPending: isSyncing } =
+    useMutation<SyncTriggerResponse>({
+      mutationFn: triggerSync,
+      onSuccess: (data) => {
+        // Invalidate activities cache when sync makes progress
+        if (data.totalSynced && data.totalSynced > 0) {
+          queryClient.invalidateQueries({ queryKey: ["activities"] });
+        }
 
-      // Refetch status to get updated count
-      refetchStatus();
+        // Refetch status to get updated count
+        refetchStatus();
 
-      // If sync is still in progress and has more, continue
-      if (data.status === "in_progress" && data.hasMore) {
-        syncInProgressRef.current = true;
-        setTimeout(() => {
-          if (syncInProgressRef.current) {
-            triggerSyncMutation();
-          }
-        }, 500);
-      } else {
+        // If sync is still in progress and has more, continue
+        if (data.status === "in_progress" && data.hasMore) {
+          syncInProgressRef.current = true;
+          setSyncInProgress(true);
+          setTimeout(() => {
+            if (syncInProgressRef.current) {
+              triggerSyncMutation();
+            }
+          }, 500);
+        } else {
+          syncInProgressRef.current = false;
+          setSyncInProgress(false);
+        }
+      },
+      onError: () => {
         syncInProgressRef.current = false;
-      }
-    },
-    onError: () => {
-      syncInProgressRef.current = false;
-    },
-  });
+        setSyncInProgress(false);
+      },
+    });
 
   // Mutation to trigger/continue streams sync
-  const {
-    mutate: triggerStreamsSyncMutation,
-    isPending: isStreamsSyncing,
-  } = useMutation<StreamsSyncTriggerResponse>({
-    mutationFn: triggerStreamsSync,
-    onSuccess: (data) => {
-      refetchStatus();
+  const { mutate: triggerStreamsSyncMutation, isPending: isStreamsSyncing } =
+    useMutation<StreamsSyncTriggerResponse>({
+      mutationFn: triggerStreamsSync,
+      onSuccess: (data) => {
+        refetchStatus();
 
-      if (data.status === "in_progress" && data.hasMore) {
-        streamsSyncInProgressRef.current = true;
-        setTimeout(() => {
-          if (streamsSyncInProgressRef.current) {
-            triggerStreamsSyncMutation();
-          }
-        }, 1000);
-      } else {
+        if (data.status === "in_progress" && data.hasMore) {
+          streamsSyncInProgressRef.current = true;
+          setStreamsSyncInProgress(true);
+          setTimeout(() => {
+            if (streamsSyncInProgressRef.current) {
+              triggerStreamsSyncMutation();
+            }
+          }, 1000);
+        } else {
+          streamsSyncInProgressRef.current = false;
+          setStreamsSyncInProgress(false);
+        }
+      },
+      onError: () => {
         streamsSyncInProgressRef.current = false;
-      }
-    },
-    onError: () => {
-      streamsSyncInProgressRef.current = false;
-    },
-  });
+        setStreamsSyncInProgress(false);
+      },
+    });
 
   // Manually trigger a sync (for refresh button)
   const forceSync = useCallback(() => {
     if (syncInProgressRef.current) return;
     syncInProgressRef.current = true;
+    setSyncInProgress(true);
     triggerSyncMutation();
   }, [triggerSyncMutation]);
 
   // Stop ongoing activity sync
   const stopSync = useCallback(() => {
     syncInProgressRef.current = false;
+    setSyncInProgress(false);
   }, []);
 
   // Start streams sync
   const startStreamsSync = useCallback(() => {
     if (streamsSyncInProgressRef.current) return;
     streamsSyncInProgressRef.current = true;
+    setStreamsSyncInProgress(true);
     triggerStreamsSyncMutation();
   }, [triggerStreamsSyncMutation]);
 
   // Stop streams sync
   const stopStreamsSync = useCallback(() => {
     streamsSyncInProgressRef.current = false;
+    setStreamsSyncInProgress(false);
   }, []);
 
   // Auto-trigger initial sync ONLY if we have 0 activities
@@ -133,6 +145,7 @@ export function useSync() {
     ) {
       hasCheckedInitialSyncRef.current = true;
       console.log("No activities found, triggering initial sync...");
+      // Set ref for synchronous checks; state will be set by mutation callbacks
       syncInProgressRef.current = true;
       triggerSyncMutation();
     } else if (!statusLoading && activityCount > 0) {
@@ -184,11 +197,11 @@ export function useSync() {
     error: statusError,
 
     // Sync state
-    isSyncing: isSyncing || syncInProgressRef.current,
+    isSyncing: isSyncing || syncInProgress,
 
     // Streams sync status
     streamsProgress: syncStatus?.streams ?? null,
-    isStreamsSyncing: isStreamsSyncing || streamsSyncInProgressRef.current,
+    isStreamsSyncing: isStreamsSyncing || streamsSyncInProgress,
     streamsComplete: syncStatus?.streams
       ? syncStatus.streams.pending === 0 && syncStatus.streams.total > 0
       : false,

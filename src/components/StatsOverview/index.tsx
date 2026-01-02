@@ -1,4 +1,9 @@
 import { useState } from "react";
+import {
+  PiPersonSimpleBike,
+  PiPersonSimpleRun,
+  PiSwimmingPool,
+} from "react-icons/pi";
 import type {
   Athlete,
   AthleteStats,
@@ -14,127 +19,84 @@ interface StatsOverviewProps {
   isLoading?: boolean;
 }
 
-// Format distance based on measurement preference
-function formatDistance(
-  meters: number,
-  preference: "feet" | "meters" = "meters"
-): string {
-  if (preference === "feet") {
-    const miles = meters / 1609.344;
-    return miles >= 1000
-      ? `${(miles / 1000).toFixed(1)}k mi`
-      : `${miles.toFixed(1)} mi`;
-  }
+function formatDistance(meters: number): string {
   const km = meters / 1000;
-  return km >= 1000 ? `${(km / 1000).toFixed(1)}k km` : `${km.toFixed(1)} km`;
+  return km >= 1000 ? `${(km / 1000).toFixed(1)}k` : km.toFixed(0);
 }
 
-// Format elevation based on measurement preference
-function formatElevation(
-  meters: number,
-  preference: "feet" | "meters" = "meters"
-): string {
-  if (preference === "feet") {
-    const feet = meters * 3.28084;
-    return feet >= 10000
-      ? `${(feet / 1000).toFixed(1)}k ft`
-      : `${Math.round(feet).toLocaleString()} ft`;
-  }
-  return meters >= 10000
-    ? `${(meters / 1000).toFixed(1)}k m`
-    : `${Math.round(meters).toLocaleString()} m`;
-}
-
-// Format time in hours and minutes
-function formatTime(seconds: number): string {
+function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-
-  if (hours >= 1000) {
-    return `${(hours / 1000).toFixed(1)}k hrs`;
+  if (hours >= 100) {
+    return `${hours}h`;
   }
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+  const mins = Math.floor((seconds % 3600) / 60);
+  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+}
+
+function formatElevation(meters: number): string {
+  if (meters >= 100000) {
+    return `${(meters / 1000).toFixed(0)}k`;
   }
-  return `${minutes}m`;
+  return meters.toFixed(0);
 }
 
-// Format date as "Month Year"
-function formatMemberSince(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+function formatCount(count: number): string {
+  return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count.toString();
 }
 
-// Get sport icon
-function SportIcon({ type }: { type: "ride" | "run" | "swim" }) {
-  const icons = {
-    ride: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="5.5" cy="17.5" r="3.5" />
-        <circle cx="18.5" cy="17.5" r="3.5" />
-        <path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5V14l-3-3 4-3 2 3h2" />
-      </svg>
-    ),
-    run: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="13" cy="4" r="2" />
-        <path d="M7 21l3-4-2-1-3 5" />
-        <path d="M16 21l-2-4-3-1 1-3 3 1 3-4 2 1-3 4 1 3-2 3" />
-      </svg>
-    ),
-    swim: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M2 20c2-1 4-1 6 0s4 1 6 0 4-1 6 0" />
-        <path d="M2 17c2-1 4-1 6 0s4 1 6 0 4-1 6 0" />
-        <circle cx="9" cy="8" r="2" />
-        <path d="M15 8l-2 2-2-2" />
-        <path d="M9 11v3" />
-      </svg>
-    ),
-  };
-  return <span className={styles.sportIcon}>{icons[type]}</span>;
+function getPeriodLabel(period: Period): string {
+  switch (period) {
+    case "recent":
+      return "Last 4 weeks";
+    case "ytd":
+      return "Year to date";
+    case "all":
+      return "All time";
+  }
 }
 
-// Skeleton component for loading state
-function StatCardSkeleton() {
+function ActivityRow({
+  type,
+  icon,
+  totals,
+}: {
+  type: string;
+  icon: React.ReactNode;
+  totals: ActivityTotal;
+}) {
+  if (totals.count === 0) return null;
+
   return (
-    <div className={`${styles.statCard} ${styles.skeleton}`}>
-      <div className={styles.skeletonLabel} />
-      <div className={styles.skeletonValue} />
-    </div>
-  );
-}
-
-function ActivityRowSkeleton() {
-  return (
-    <div className={`${styles.activityRow} ${styles.skeleton}`}>
-      <div className={styles.skeletonIcon} />
-      <div className={styles.skeletonStats}>
-        <div className={styles.skeletonStat} />
-        <div className={styles.skeletonStat} />
-        <div className={styles.skeletonStat} />
-        <div className={styles.skeletonStat} />
+    <div className={styles.activityRow}>
+      <div className={styles.activityType}>
+        <span className={styles.sportIcon}>{icon}</span>
+        {type}
+      </div>
+      <div className={styles.activityStats}>
+        <div className={styles.activityStat}>
+          <span className={styles.activityStatValue}>
+            {formatCount(totals.count)}
+          </span>
+          <span className={styles.activityStatLabel}>Activities</span>
+        </div>
+        <div className={styles.activityStat}>
+          <span className={styles.activityStatValue}>
+            {formatDistance(totals.distance)} km
+          </span>
+          <span className={styles.activityStatLabel}>Distance</span>
+        </div>
+        <div className={styles.activityStat}>
+          <span className={styles.activityStatValue}>
+            {formatDuration(totals.moving_time)}
+          </span>
+          <span className={styles.activityStatLabel}>Time</span>
+        </div>
+        <div className={styles.activityStat}>
+          <span className={styles.activityStatValue}>
+            {formatElevation(totals.elevation_gain)} m
+          </span>
+          <span className={styles.activityStatLabel}>Elevation</span>
+        </div>
       </div>
     </div>
   );
@@ -143,39 +105,51 @@ function ActivityRowSkeleton() {
 export function StatsOverview({
   athlete,
   stats,
-  isLoading = false,
+  isLoading,
 }: StatsOverviewProps) {
-  const [period, setPeriod] = useState<Period>("ytd");
-
-  const measurementPref = athlete?.measurement_preference ?? "meters";
+  const [period, setPeriod] = useState<Period>("recent");
 
   if (isLoading) {
     return (
       <div className={styles.container}>
-        {/* Profile skeleton */}
-        <div className={`${styles.profileCard} ${styles.skeleton}`}>
-          <div className={styles.skeletonAvatar} />
+        {/* Profile Card Skeleton */}
+        <div className={styles.profileCard}>
+          <div className={`${styles.skeletonAvatar} ${styles.skeleton}`} />
           <div className={styles.skeletonProfileInfo}>
-            <div className={styles.skeletonName} />
-            <div className={styles.skeletonLocation} />
+            <div className={`${styles.skeletonName} ${styles.skeleton}`} />
+            <div className={`${styles.skeletonLocation} ${styles.skeleton}`} />
           </div>
         </div>
 
-        {/* Highlight stats skeleton */}
+        {/* Highlight Stats Skeleton */}
         <div className={styles.highlightGrid}>
           {Array.from({ length: 4 }).map((_, i) => (
-            <StatCardSkeleton key={i} />
+            <div key={i} className={styles.statCard}>
+              <div className={`${styles.skeletonLabel} ${styles.skeleton}`} />
+              <div className={`${styles.skeletonValue} ${styles.skeleton}`} />
+            </div>
           ))}
         </div>
 
-        {/* Activity breakdown skeleton */}
+        {/* Breakdown Skeleton */}
         <div className={styles.breakdownSection}>
-          <div className={styles.breakdownHeader}>
-            <div className={styles.skeletonLabel} style={{ width: "120px" }} />
-          </div>
           <div className={styles.activityList}>
             {Array.from({ length: 3 }).map((_, i) => (
-              <ActivityRowSkeleton key={i} />
+              <div key={i} className={styles.activityRow}>
+                <div className={styles.activityType}>
+                  <div
+                    className={`${styles.skeletonIcon} ${styles.skeleton}`}
+                  />
+                </div>
+                <div className={styles.skeletonStats}>
+                  {Array.from({ length: 4 }).map((_, j) => (
+                    <div
+                      key={j}
+                      className={`${styles.skeletonStat} ${styles.skeleton}`}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -187,47 +161,60 @@ export function StatsOverview({
     return (
       <div className={styles.container}>
         <div className={styles.emptyState}>
-          <p>No stats available yet. Start tracking your activities!</p>
+          No stats available. Sync your activities to see your stats.
         </div>
       </div>
     );
   }
 
-  // Calculate totals for highlights
-  const allTimeDistance =
+  // Get totals based on selected period
+  const getTotals = (sport: "ride" | "run" | "swim"): ActivityTotal => {
+    switch (period) {
+      case "recent":
+        return stats[`recent_${sport}_totals`];
+      case "ytd":
+        return stats[`ytd_${sport}_totals`];
+      case "all":
+        return stats[`all_${sport}_totals`];
+    }
+  };
+
+  const rideTotals = getTotals("ride");
+  const runTotals = getTotals("run");
+  const swimTotals = getTotals("swim");
+
+  // Calculate highlight stats (all time)
+  const totalActivities =
+    stats.all_ride_totals.count +
+    stats.all_run_totals.count +
+    stats.all_swim_totals.count;
+  const totalDistance =
     stats.all_ride_totals.distance +
     stats.all_run_totals.distance +
     stats.all_swim_totals.distance;
-
-  const allTimeTime =
+  const totalTime =
     stats.all_ride_totals.moving_time +
     stats.all_run_totals.moving_time +
     stats.all_swim_totals.moving_time;
+  const totalElevation =
+    stats.all_ride_totals.elevation_gain +
+    stats.all_run_totals.elevation_gain +
+    stats.all_swim_totals.elevation_gain;
 
-  // Get stats for selected period
-  const getPeriodStats = (type: "ride" | "run" | "swim"): ActivityTotal => {
-    const key = `${period}_${type}_totals` as keyof AthleteStats;
-    return stats[key] as ActivityTotal;
-  };
+  // Format location
+  const location = [athlete.city, athlete.state, athlete.country]
+    .filter(Boolean)
+    .join(", ");
 
-  const rideStats = getPeriodStats("ride");
-  const runStats = getPeriodStats("run");
-  const swimStats = getPeriodStats("swim");
-
-  const periodLabels: Record<Period, string> = {
-    recent: "Last 4 Weeks",
-    ytd: "Year to Date",
-    all: "All Time",
-  };
-
-  // Check which sports have activity
-  const hasRides = stats.all_ride_totals.count > 0;
-  const hasRuns = stats.all_run_totals.count > 0;
-  const hasSwims = stats.all_swim_totals.count > 0;
+  // Format member since
+  const memberSince = new Date(athlete.created_at).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+  });
 
   return (
     <div className={styles.container}>
-      {/* Athlete Profile Header */}
+      {/* Profile Card */}
       <div className={styles.profileCard}>
         <img
           src={athlete.profile}
@@ -236,25 +223,15 @@ export function StatsOverview({
         />
         <div className={styles.profileInfo}>
           <div className={styles.nameRow}>
-            <h3 className={styles.name}>
+            <h2 className={styles.name}>
               {athlete.firstname} {athlete.lastname}
-            </h3>
-            {(athlete.premium || athlete.summit) && (
-              <span className={styles.badge}>
-                {athlete.summit ? "Summit" : "Premium"}
-              </span>
-            )}
+            </h2>
+            {athlete.summit && <span className={styles.badge}>Summit</span>}
           </div>
           <div className={styles.profileMeta}>
-            {athlete.city && (
-              <span className={styles.location}>
-                {[athlete.city, athlete.state, athlete.country]
-                  .filter(Boolean)
-                  .join(", ")}
-              </span>
-            )}
+            {location && <span className={styles.location}>{location}</span>}
             <span className={styles.memberSince}>
-              Member since {formatMemberSince(athlete.created_at)}
+              Member since {memberSince}
             </span>
           </div>
         </div>
@@ -266,43 +243,36 @@ export function StatsOverview({
         )}
       </div>
 
-      {/* Highlight Stats Grid */}
+      {/* Highlight Stats */}
       <div className={styles.highlightGrid}>
+        <div className={styles.statCard}>
+          <span className={styles.statLabel}>Total Activities</span>
+          <span className={styles.statValue}>
+            {formatCount(totalActivities)}
+          </span>
+        </div>
         <div className={styles.statCard}>
           <span className={styles.statLabel}>Total Distance</span>
           <span className={styles.statValue}>
-            {formatDistance(allTimeDistance, measurementPref)}
-          </span>
-        </div>
-        <div className={styles.statCard}>
-          <span className={styles.statLabel}>Longest Ride</span>
-          <span className={styles.statValue}>
-            {stats.biggest_ride_distance
-              ? formatDistance(stats.biggest_ride_distance, measurementPref)
-              : "—"}
-          </span>
-        </div>
-        <div className={styles.statCard}>
-          <span className={styles.statLabel}>Most Climbing</span>
-          <span className={styles.statValue}>
-            {stats.biggest_climb_elevation_gain
-              ? formatElevation(
-                  stats.biggest_climb_elevation_gain,
-                  measurementPref
-                )
-              : "—"}
+            {formatDistance(totalDistance)} km
           </span>
         </div>
         <div className={styles.statCard}>
           <span className={styles.statLabel}>Total Time</span>
-          <span className={styles.statValue}>{formatTime(allTimeTime)}</span>
+          <span className={styles.statValue}>{formatDuration(totalTime)}</span>
+        </div>
+        <div className={styles.statCard}>
+          <span className={styles.statLabel}>Total Elevation</span>
+          <span className={styles.statValue}>
+            {formatElevation(totalElevation)} m
+          </span>
         </div>
       </div>
 
-      {/* Activity Breakdown by Period */}
+      {/* Activity Breakdown */}
       <div className={styles.breakdownSection}>
         <div className={styles.breakdownHeader}>
-          <h4 className={styles.breakdownTitle}>Activity Breakdown</h4>
+          <h3 className={styles.breakdownTitle}>Activity Breakdown</h3>
           <div className={styles.periodToggle}>
             {(["recent", "ytd", "all"] as Period[]).map((p) => (
               <button
@@ -317,118 +287,32 @@ export function StatsOverview({
             ))}
           </div>
         </div>
-
-        <p className={styles.periodLabel}>{periodLabels[period]}</p>
+        <p className={styles.periodLabel}>{getPeriodLabel(period)}</p>
 
         <div className={styles.activityList}>
-          {hasRides && (
-            <div className={styles.activityRow}>
-              <div className={styles.activityType}>
-                <SportIcon type="ride" />
-                <span>Cycling</span>
-              </div>
-              <div className={styles.activityStats}>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {rideStats.count}
-                  </span>
-                  <span className={styles.activityStatLabel}>rides</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatDistance(rideStats.distance, measurementPref)}
-                  </span>
-                  <span className={styles.activityStatLabel}>distance</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatTime(rideStats.moving_time)}
-                  </span>
-                  <span className={styles.activityStatLabel}>time</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatElevation(rideStats.elevation_gain, measurementPref)}
-                  </span>
-                  <span className={styles.activityStatLabel}>elevation</span>
-                </div>
-              </div>
-            </div>
-          )}
+          <ActivityRow
+            type="Rides"
+            icon={<PiPersonSimpleBike />}
+            totals={rideTotals}
+          />
+          <ActivityRow
+            type="Runs"
+            icon={<PiPersonSimpleRun />}
+            totals={runTotals}
+          />
+          <ActivityRow
+            type="Swims"
+            icon={<PiSwimmingPool />}
+            totals={swimTotals}
+          />
 
-          {hasRuns && (
-            <div className={styles.activityRow}>
-              <div className={styles.activityType}>
-                <SportIcon type="run" />
-                <span>Running</span>
+          {rideTotals.count === 0 &&
+            runTotals.count === 0 &&
+            swimTotals.count === 0 && (
+              <div className={styles.emptyPeriod}>
+                No activities for this period
               </div>
-              <div className={styles.activityStats}>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {runStats.count}
-                  </span>
-                  <span className={styles.activityStatLabel}>runs</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatDistance(runStats.distance, measurementPref)}
-                  </span>
-                  <span className={styles.activityStatLabel}>distance</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatTime(runStats.moving_time)}
-                  </span>
-                  <span className={styles.activityStatLabel}>time</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatElevation(runStats.elevation_gain, measurementPref)}
-                  </span>
-                  <span className={styles.activityStatLabel}>elevation</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {hasSwims && (
-            <div className={styles.activityRow}>
-              <div className={styles.activityType}>
-                <SportIcon type="swim" />
-                <span>Swimming</span>
-              </div>
-              <div className={styles.activityStats}>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {swimStats.count}
-                  </span>
-                  <span className={styles.activityStatLabel}>swims</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatDistance(swimStats.distance, measurementPref)}
-                  </span>
-                  <span className={styles.activityStatLabel}>distance</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>
-                    {formatTime(swimStats.moving_time)}
-                  </span>
-                  <span className={styles.activityStatLabel}>time</span>
-                </div>
-                <div className={styles.activityStat}>
-                  <span className={styles.activityStatValue}>—</span>
-                  <span className={styles.activityStatLabel}>elevation</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!hasRides && !hasRuns && !hasSwims && (
-            <div className={styles.emptyPeriod}>
-              <p>No activities recorded for this period.</p>
-            </div>
-          )}
+            )}
         </div>
       </div>
     </div>

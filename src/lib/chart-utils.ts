@@ -435,7 +435,7 @@ export function formatMetricValue(value: number, metric: MetricKey): string {
   return `${config.format(value)} ${config.unit}`;
 }
 
-// Get unique activity types from activities
+// Get unique activity types from activities (grouped version - legacy)
 export function getUniqueActivityTypeGroups(activities: Activity[]): string[] {
   const types = new Set<string>();
   let hasIndoorRide = false;
@@ -473,6 +473,45 @@ export function getUniqueActivityTypeGroups(activities: Activity[]): string[] {
   }
 
   return Array.from(types);
+}
+
+// Get unique sport types from activities (individual types, not grouped)
+export function getUniqueSportTypes(activities: Activity[]): string[] {
+  const types = new Set<string>();
+
+  activities.forEach((activity) => {
+    // Use the effective sport type which handles indoor rides specially
+    const sportType = getEffectiveSportType(activity);
+    types.add(sportType);
+  });
+
+  // Sort with common types first, then alphabetically
+  const priorityOrder = ["Run", "Ride", "VirtualRide", "IndoorRide", "Swim", "Walk", "Hike"];
+
+  return Array.from(types).sort((a, b) => {
+    const aIndex = priorityOrder.indexOf(a);
+    const bIndex = priorityOrder.indexOf(b);
+
+    if (aIndex !== -1 && bIndex !== -1) {
+      return aIndex - bIndex;
+    }
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
+
+// Filter activities by individual sport types (not grouped)
+export function filterActivitiesBySportType(
+  activities: Activity[],
+  selectedTypes: string[]
+): Activity[] {
+  if (selectedTypes.length === 0) return activities;
+
+  return activities.filter((activity) => {
+    const sportType = getEffectiveSportType(activity);
+    return selectedTypes.includes(sportType);
+  });
 }
 
 // ============================================

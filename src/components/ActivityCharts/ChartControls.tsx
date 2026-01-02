@@ -17,11 +17,30 @@ import {
   PiHeartbeat,
   PiCaretLeft,
   PiCaretRight,
+  PiBarbell,
+  PiPersonSimpleSki,
+  PiWaves,
+  PiSneakerMove,
 } from "react-icons/pi";
+import { TbKayak, TbYoga, TbStretching } from "react-icons/tb";
+import {
+  GiGolfFlag,
+  GiRollerSkate,
+  GiStairsGoal,
+  GiSurfBoard,
+  GiSoccerBall,
+  GiSnowboard,
+} from "react-icons/gi";
+import { LuSailboat } from "react-icons/lu";
+import { FaSkating } from "react-icons/fa";
 import { IndoorIcon } from "../icons/IndoorIcon";
 import type { TimeSpan, MetricKey } from "../../lib/chart-utils";
 import styles from "./ActivityCharts.module.css";
-import { MdDirectionsBike, MdDirectionsRun } from "react-icons/md";
+import {
+  MdDirectionsBike,
+  MdDirectionsRun,
+  MdElectricBike,
+} from "react-icons/md";
 
 interface ChartControlsProps {
   timeSpan: TimeSpan;
@@ -37,16 +56,86 @@ interface ChartControlsProps {
   canGoPrev: boolean;
 }
 
-// Activity type options with icons
-const ACTIVITY_TYPE_OPTIONS = [
-  { value: "Run", label: "Run", icon: MdDirectionsRun },
-  { value: "Ride", label: "Ride", icon: MdDirectionsBike },
-  { value: "IndoorRide", label: "Indoor", icon: IndoorIcon },
-  { value: "Swim", label: "Swim", icon: PiSwimmingPool },
-  { value: "Walk", label: "Walk", icon: PiPersonSimpleWalk },
-  { value: "Hike", label: "Hike", icon: PiMountains },
-  { value: "Other", label: "Other", icon: PiDotsThree },
-];
+// Icon mapping for known sport types
+const SPORT_TYPE_ICONS: Record<
+  string,
+  React.ComponentType<{ size?: number }>
+> = {
+  Run: MdDirectionsRun,
+  VirtualRun: MdDirectionsRun,
+  TrailRun: MdDirectionsRun,
+  Ride: MdDirectionsBike,
+  VirtualRide: MdDirectionsBike,
+  GravelRide: MdDirectionsBike,
+  MountainBikeRide: MdDirectionsBike,
+  EBikeRide: MdElectricBike,
+  IndoorRide: IndoorIcon,
+  Swim: PiSwimmingPool,
+  Walk: PiPersonSimpleWalk,
+  Hike: PiMountains,
+  Rowing: TbKayak, // Using kayak icon for rowing
+  Kayaking: TbKayak,
+  Canoeing: TbKayak,
+  StandUpPaddling: PiWaves,
+  Surfing: GiSurfBoard,
+  Kitesurf: PiWaves, // Using waves icon for kitesurf
+  Windsurf: GiSurfBoard,
+  Sail: LuSailboat,
+  AlpineSki: PiPersonSimpleSki,
+  BackcountrySki: PiPersonSimpleSki,
+  NordicSki: PiPersonSimpleSki,
+  Snowboard: GiSnowboard,
+  Snowshoe: PiPersonSimpleSki,
+  IceSkate: FaSkating,
+  InlineSkate: GiRollerSkate,
+  RollerSki: GiRollerSkate,
+  Skateboard: GiRollerSkate,
+  WeightTraining: PiBarbell,
+  Crossfit: PiBarbell,
+  Workout: TbStretching,
+  Yoga: TbYoga,
+  RockClimbing: PiMountains,
+  Golf: GiGolfFlag,
+  Soccer: GiSoccerBall,
+  StairStepper: GiStairsGoal,
+  Elliptical: PiSneakerMove,
+  Velomobile: MdDirectionsBike,
+  Handcycle: MdDirectionsBike,
+  Wheelchair: PiPersonSimpleWalk,
+};
+
+// Labels for sport types (use type name if not specified)
+const SPORT_TYPE_LABELS: Record<string, string> = {
+  VirtualRun: "Virtual Run",
+  TrailRun: "Trail Run",
+  VirtualRide: "Virtual Ride",
+  GravelRide: "Gravel",
+  MountainBikeRide: "MTB",
+  EBikeRide: "E-Bike",
+  IndoorRide: "Indoor Bike",
+  StandUpPaddling: "SUP",
+  AlpineSki: "Ski",
+  BackcountrySki: "Backcountry Ski",
+  NordicSki: "Nordic Ski",
+  IceSkate: "Ice Skate",
+  InlineSkate: "Inline Skate",
+  RollerSki: "Roller Ski",
+  WeightTraining: "Weights",
+  RockClimbing: "Climbing",
+  StairStepper: "Stairs",
+};
+
+// Get icon for a sport type (fallback to generic icon)
+function getSportTypeIcon(
+  sportType: string
+): React.ComponentType<{ size?: number }> {
+  return SPORT_TYPE_ICONS[sportType] || PiDotsThree;
+}
+
+// Get label for a sport type
+function getSportTypeLabel(sportType: string): string {
+  return SPORT_TYPE_LABELS[sportType] || sportType;
+}
 
 // Metric options with icons
 const METRIC_OPTIONS: {
@@ -150,24 +239,22 @@ export function ChartControls({
           Activity Types
         </Text>
         <div className={styles.toggleCardsGrid}>
-          {ACTIVITY_TYPE_OPTIONS.filter((option) =>
-            availableActivityTypes.includes(option.value)
-          ).map((option) => {
-            const Icon = option.icon;
-            const isSelected = selectedActivityTypes.includes(option.value);
+          {availableActivityTypes.map((sportType) => {
+            const Icon = getSportTypeIcon(sportType);
+            const isSelected = selectedActivityTypes.includes(sportType);
 
             return (
               <button
                 type="button"
-                key={option.value}
-                onClick={() => toggleActivityType(option.value)}
+                key={sportType}
+                onClick={() => toggleActivityType(sportType)}
                 className={`${styles.toggleCard} ${
                   isSelected ? styles.toggleCardSelected : ""
                 }`}
               >
-                <Icon size={20} />
+                <Icon size={16} />
                 <Text size="1" weight="medium">
-                  {option.label}
+                  {getSportTypeLabel(sportType)}
                 </Text>
               </button>
             );
@@ -194,7 +281,7 @@ export function ChartControls({
                   isSelected ? styles.toggleCardSelected : ""
                 }`}
               >
-                <Icon size={20} />
+                <Icon size={16} />
                 <Text size="1" weight="medium">
                   {option.label}
                 </Text>
