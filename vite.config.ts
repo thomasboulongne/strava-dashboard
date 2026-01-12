@@ -9,6 +9,10 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['dashyLogo.svg'],
+      workbox: {
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/\.netlify/]
+      },
       manifest: {
         name: 'Dashy - Strava Dashboard',
         short_name: 'Dashy',
