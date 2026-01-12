@@ -1,9 +1,7 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useState } from "react";
 import {
   Container,
   Flex,
-  Heading,
   Text,
   Box,
   Button,
@@ -21,9 +19,6 @@ import {
   FiX,
   FiInfo,
 } from "react-icons/fi";
-import { AuthButton } from "../components/AuthButton";
-import { useAuthStore } from "../stores/authStore";
-import { useAthlete } from "../hooks/useAthlete";
 import {
   useTrainingPlan,
   useImportPlan,
@@ -621,10 +616,6 @@ function DayCell({
 }
 
 export function TrainingPlan() {
-  const navigate = useNavigate();
-  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
-  const { isLoading: athleteLoading, isError: athleteError } = useAthlete();
-
   // Week navigation state
   const [currentWeek, setCurrentWeek] = useState(() => getWeekStart());
 
@@ -644,14 +635,6 @@ export function TrainingPlan() {
   const linkMutation = useLinkActivity();
   const unlinkMutation = useUnlinkActivity();
   const deleteMutation = useDeletePlan();
-
-  const isLoading = authLoading || athleteLoading;
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      navigate("/");
-    }
-  }, [isAuthenticated, isLoading, navigate]);
 
   // Handle import
   const handleImport = async () => {
@@ -683,28 +666,6 @@ export function TrainingPlan() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <Box className={styles.page}>
-        <header className={styles.header}>
-          <Container size="4">
-            <Flex justify="between" align="center" py="4">
-              <Heading size="5">Training Plan</Heading>
-              <Skeleton height="32px" width="100px" />
-            </Flex>
-          </Container>
-        </header>
-        <Container size="4" className={styles.container}>
-          <Skeleton height="400px" />
-        </Container>
-      </Box>
-    );
-  }
-
-  if (athleteError || !isAuthenticated) {
-    return null;
-  }
-
   const weekDates = getWeekDates(currentWeek);
   const workouts = planData?.workouts ?? [];
   const unmatchedActivities = planData?.unmatchedActivities ?? [];
@@ -717,18 +678,7 @@ export function TrainingPlan() {
   });
 
   return (
-    <Box className={styles.page}>
-      <header className={styles.header}>
-        <Container size="4">
-          <Flex justify="between" align="center" py="4">
-            <Flex align="center" gap="4">
-              <Heading size="5">Training Plan</Heading>
-            </Flex>
-            <AuthButton />
-          </Flex>
-        </Container>
-      </header>
-
+    <>
       <Container size="4" className={styles.container}>
         <Flex direction="column" gap="4" py="6">
           {/* Week navigation and actions */}
@@ -884,25 +834,6 @@ export function TrainingPlan() {
           </Flex>
         </Dialog.Content>
       </Dialog.Root>
-
-      <footer className={styles.footer}>
-        <Container size="4">
-          <Flex justify="center" align="center" py="4">
-            <a
-              href="https://www.strava.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.poweredByLink}
-            >
-              <img
-                src="/api_logo_pwrdBy_strava_horiz_orange.svg"
-                alt="Powered by Strava"
-                height="24"
-              />
-            </a>
-          </Flex>
-        </Container>
-      </footer>
-    </Box>
+    </>
   );
 }

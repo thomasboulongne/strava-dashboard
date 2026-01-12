@@ -77,6 +77,15 @@ function HeatmapContent({
     return labels;
   }, [weeks]);
 
+  // Create a map of weekIndex to month label for inline display
+  const weekMonthMap = useMemo(() => {
+    const map = new Map<number, string>();
+    monthLabels.forEach(({ month, weekIndex }) => {
+      map.set(weekIndex, month);
+    });
+    return map;
+  }, [monthLabels]);
+
   if (data.length === 0) {
     return <div className={chartStyles.emptyState}>No activities found</div>;
   }
@@ -85,6 +94,11 @@ function HeatmapContent({
 
   return (
     <div style={{ position: "relative" }}>
+      <div className={chartStyles.heatmapMobileLegend}>
+        <span>↓ Sun–Sat</span>
+        <span style={{ marginLeft: "auto" }}>→ Weeks</span>
+      </div>
+
       <div
         className={chartStyles.heatmapMonthLabels}
         style={{ marginLeft: "2rem" }}
@@ -102,7 +116,7 @@ function HeatmapContent({
         ))}
       </div>
 
-      <div style={{ display: "flex", marginTop: "1.25rem" }}>
+      <div className={chartStyles.heatmapWrapper}>
         <div className={chartStyles.heatmapDayLabels}>
           {dayLabels.map((label, i) => (
             <div
@@ -118,7 +132,16 @@ function HeatmapContent({
         <div className={chartStyles.heatmapContainer}>
           <div className={chartStyles.heatmapGrid}>
             {weeks.map((week, weekIndex) => (
-              <div key={weekIndex} className={chartStyles.heatmapWeek}>
+              <div
+                key={weekIndex}
+                className={chartStyles.heatmapWeek}
+                data-month={weekMonthMap.get(weekIndex) || undefined}
+              >
+                {weekMonthMap.has(weekIndex) && (
+                  <span className={chartStyles.heatmapInlineMonth}>
+                    {weekMonthMap.get(weekIndex)}
+                  </span>
+                )}
                 {week.map((day, dayIndex) => (
                   <div
                     key={dayIndex}

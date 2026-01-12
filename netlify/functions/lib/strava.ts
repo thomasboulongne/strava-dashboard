@@ -253,6 +253,7 @@ export async function withAuth(
       accessToken: initialAccessToken,
       refreshToken,
       expiresAt,
+      athleteId,
     } = parseTokensFromCookies(cookieHeader);
 
     if (!initialAccessToken && !refreshToken) {
@@ -262,16 +263,21 @@ export async function withAuth(
     let accessToken = initialAccessToken;
     let newCookies: string[] | null = null;
 
-    // Check if token is expired or about to expire (within 5 minutes)
+    // Check if token is expired, about to expire (within 5 minutes), OR missing
+    // This handles the case where the access_token cookie has been deleted by the browser
+    // but the refresh_token (30-day lifetime) is still valid
     const now = Math.floor(Date.now() / 1000);
-    if (expiresAt && expiresAt - now < 300 && refreshToken) {
+    const needsRefresh = !accessToken || (expiresAt && expiresAt - now < 300);
+
+    if (needsRefresh && refreshToken) {
       try {
         const tokens = await refreshAccessToken(refreshToken);
         accessToken = tokens.access_token;
         newCookies = createTokenCookies(
           tokens.access_token,
           tokens.refresh_token,
-          tokens.expires_at
+          tokens.expires_at,
+          athleteId ?? undefined
         );
       } catch {
         return jsonResponse({ error: "Token refresh failed" }, 401);

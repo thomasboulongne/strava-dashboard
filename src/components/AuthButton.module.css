@@ -13,7 +13,7 @@
 }
 
 .stravaConnectButton:focus-visible {
-  outline: 2px solid #FC4C02;
+  outline: 2px solid #fc4c02;
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -22,13 +22,6 @@
   display: block;
   height: 48px;
   width: auto;
-}
-
-/* Navigation Links */
-.navLinks {
-  border-right: 1px solid var(--gray-a5);
-  padding-right: 0.75rem;
-  margin-right: 0.5rem;
 }
 
 .navLink {
@@ -79,4 +72,3 @@
     font-size: 0.8rem;
   }
 }
-

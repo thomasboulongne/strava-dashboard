@@ -31,37 +31,43 @@ export function AuthButton() {
 
   if (isAuthenticated && athlete) {
     return (
-      <Flex align="center" gap="3">
+      <Flex align="center" justify="between" gap="3" width="100%">
         {/* Navigation Links */}
-        <Flex gap="2" className={styles.navLinks}>
+        <Flex gap="2">
           <Link
             to="/dashboard"
-            className={`${styles.navLink} ${location.pathname === "/dashboard" ? styles.navLinkActive : ""}`}
+            className={`${styles.navLink} ${
+              location.pathname === "/dashboard" ? styles.navLinkActive : ""
+            }`}
           >
             Dashboard
           </Link>
           <Link
             to="/plan"
-            className={`${styles.navLink} ${location.pathname === "/plan" ? styles.navLinkActive : ""}`}
+            className={`${styles.navLink} ${
+              location.pathname === "/plan" ? styles.navLinkActive : ""
+            }`}
           >
             Training Plan
           </Link>
         </Flex>
 
-        <Flex align="center" gap="2">
-          <Avatar
-            src={athlete.profile}
-            fallback={`${athlete.firstname[0]}${athlete.lastname[0]}`}
-            size="2"
-            radius="full"
-          />
-          <Text size="2" weight="medium" className={styles.athleteName}>
-            {athlete.firstname} {athlete.lastname}
-          </Text>
+        <Flex align="end" gap="2">
+          <Flex align="center" gap="2">
+            <Avatar
+              src={athlete.profile}
+              fallback={`${athlete.firstname[0]}${athlete.lastname[0]}`}
+              size="2"
+              radius="full"
+            />
+            <Text size="2" weight="medium" className={styles.athleteName}>
+              {athlete.firstname} {athlete.lastname}
+            </Text>
+          </Flex>
+          <Button variant="soft" color="gray" onClick={handleLogout}>
+            Logout
+          </Button>
         </Flex>
-        <Button variant="soft" color="gray" onClick={handleLogout}>
-          Logout
-        </Button>
       </Flex>
     );
   }

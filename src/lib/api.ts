@@ -26,9 +26,40 @@ class ApiError extends Error {
   }
 }
 
+// Track if we're currently refreshing to avoid multiple simultaneous refreshes
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshToken(): Promise<boolean> {
+  // If already refreshing, wait for that to complete
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 async function fetchApi<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  isRetry = false
 ): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
@@ -38,6 +69,15 @@ async function fetchApi<T>(
       ...options?.headers,
     },
   });
+
+  // If unauthorized and not already a retry, try refreshing the token
+  if (response.status === 401 && !isRetry) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      // Retry the original request
+      return fetchApi<T>(endpoint, options, true);
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));

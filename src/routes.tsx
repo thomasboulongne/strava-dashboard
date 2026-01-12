@@ -3,6 +3,7 @@ import { Home } from "./pages/Home";
 import { Dashboard } from "./pages/Dashboard";
 import { Callback } from "./pages/Callback";
 import { TrainingPlan } from "./pages/TrainingPlan";
+import { Layout } from "./components/Layout";
 
 export const router = createBrowserRouter([
   {
@@ -10,16 +11,21 @@ export const router = createBrowserRouter([
     element: <Home />,
   },
   {
-    path: "/dashboard",
-    element: <Dashboard />,
-  },
-  {
     path: "/callback",
     element: <Callback />,
   },
   {
-    path: "/plan",
-    element: <TrainingPlan />,
+    // Protected routes with shared layout
+    element: <Layout />,
+    children: [
+      {
+        path: "/dashboard",
+        element: <Dashboard />,
+      },
+      {
+        path: "/plan",
+        element: <TrainingPlan />,
+      },
+    ],
   },
 ]);
-

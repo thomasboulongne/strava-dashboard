@@ -1,15 +1,11 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router";
 import {
   Container,
   Flex,
   Heading,
   Text,
-  Skeleton,
   Box,
   Separator,
 } from "@radix-ui/themes";
-import { AuthButton } from "../components/AuthButton";
 import { SyncStatus } from "../components/SyncStatus";
 import { ActivityCharts } from "../components/ActivityCharts";
 import {
@@ -28,7 +24,6 @@ import {
   HRTrendChart,
 } from "../components/AnalyticsCharts";
 import {
-  DashboardSkeleton,
   ChartCardSkeleton,
   HeatmapSkeleton,
 } from "../components/Skeletons";
@@ -45,14 +40,12 @@ import styles from "./Dashboard.module.css";
 const STRAVA_PER_PAGE = 200;
 
 export function Dashboard() {
-  const navigate = useNavigate();
-  const { isAuthenticated, isLoading: authLoading, athlete } = useAuthStore();
+  const { athlete } = useAuthStore();
 
-  // Fetch athlete data to check auth status
+  // Fetch athlete data
   const {
     data: athleteData,
     isLoading: athleteLoading,
-    isError: athleteError,
   } = useAthlete();
 
   // Fetch stats and activities when authenticated
@@ -69,36 +62,6 @@ export function Dashboard() {
   const { data: zonesData, isLoading: zonesLoading } = useAthleteZones();
   const { data: streamsData, isLoading: streamsLoading } = useActivityStreams();
 
-  const isLoading = authLoading || athleteLoading;
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      navigate("/");
-    }
-  }, [isAuthenticated, isLoading, navigate]);
-
-  if (isLoading) {
-    return (
-      <Box className={styles.page}>
-        <header className={styles.header}>
-          <Container size="4">
-            <Flex justify="between" align="center" py="4">
-              <Heading size="5">Dashy</Heading>
-              <Skeleton height="32px" width="100px" />
-            </Flex>
-          </Container>
-        </header>
-        <Container size="4" className={styles.container}>
-          <DashboardSkeleton />
-        </Container>
-      </Box>
-    );
-  }
-
-  if (athleteError || !isAuthenticated) {
-    return null; // Will redirect via useEffect
-  }
-
   // Flatten paginated activities
   const activities = activitiesData?.pages.flat() ?? [];
 
@@ -107,198 +70,168 @@ export function Dashboard() {
   const streamsMap = streamsData?.streams ?? {};
 
   return (
-    <Box className={styles.page}>
-      <header className={styles.header}>
-        <Container size="4">
-          <Flex justify="between" align="center" py="4">
-            <Heading size="5">Dashy</Heading>
-            <AuthButton />
+    <Container size="4" className={styles.container}>
+      <Flex direction="column" gap="6" py="6">
+        <Box>
+          <Flex justify="between" align="start">
+            <Box>
+              <Heading size="6" mb="2">
+                Welcome back, {athlete?.firstname}!
+              </Heading>
+              <Text color="gray">
+                Here's your activity overview. Customize this dashboard to
+                display your stats however you'd like.
+              </Text>
+            </Box>
+            <SyncStatus />
           </Flex>
-        </Container>
-      </header>
+        </Box>
 
-      <Container size="4" className={styles.container}>
-        <Flex direction="column" gap="6" py="6">
-          <Box>
-            <Flex justify="between" align="start">
-              <Box>
-                <Heading size="6" mb="2">
-                  Welcome back, {athlete?.firstname}!
-                </Heading>
-                <Text color="gray">
-                  Here's your activity overview. Customize this dashboard to
-                  display your stats however you'd like.
-                </Text>
-              </Box>
-              <SyncStatus />
-            </Flex>
-          </Box>
+        <Separator size="4" />
 
-          <Separator size="4" />
-
-          {/* Stats Overview Section */}
-          <Box className={styles.section}>
-            <Heading size="4" mb="4">
-              Stats Overview
-            </Heading>
-            <StatsOverview
-              athlete={athleteData ?? null}
-              stats={stats ?? null}
-              isLoading={statsLoading || athleteLoading}
-            />
-          </Box>
-
-          <Separator size="4" />
-
-          {/* Original Activity Trends Chart */}
-          <ActivityCharts
-            activities={activities}
-            isLoading={activitiesLoading}
-            fetchNextPage={fetchNextPage}
-            hasNextPage={hasNextPage}
-            isFetchingNextPage={isFetchingNextPage}
+        {/* Stats Overview Section */}
+        <Box className={styles.section}>
+          <Heading size="4" mb="4">
+            Stats Overview
+          </Heading>
+          <StatsOverview
+            athlete={athleteData ?? null}
+            stats={stats ?? null}
+            isLoading={statsLoading || athleteLoading}
           />
-          <Separator size="4" />
+        </Box>
 
-          {/* Analytics Charts Grid */}
-          <Box>
-            <Heading size="4" mb="4">
-              Analytics
-            </Heading>
+        <Separator size="4" />
 
-            {activitiesLoading ? (
-              <div className={styles.analyticsGrid}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <ChartCardSkeleton key={i} />
-                ))}
-                <div className={styles.fullWidth}>
-                  <HeatmapSkeleton />
-                </div>
-                <ChartCardSkeleton />
+        {/* Original Activity Trends Chart */}
+        <ActivityCharts
+          activities={activities}
+          isLoading={activitiesLoading}
+          fetchNextPage={fetchNextPage}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+        />
+        <Separator size="4" />
+
+        {/* Analytics Charts Grid */}
+        <Box>
+          <Heading size="4" mb="4">
+            Analytics
+          </Heading>
+
+          {activitiesLoading ? (
+            <div className={styles.analyticsGrid}>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <ChartCardSkeleton key={i} />
+              ))}
+              <div className={styles.fullWidth}>
+                <HeatmapSkeleton />
               </div>
-            ) : (
-              <div className={styles.analyticsGrid}>
-                <WeeklyVolumeChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <TrainingIntensityChart
-                  activities={activities}
-                  streamsMap={streamsMap}
-                  zones={zones}
-                  isLoading={zonesLoading || streamsLoading}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <HRZoneDistributionChart
-                  activities={activities}
-                  streamsMap={streamsMap}
-                  zones={zones}
-                  isLoading={zonesLoading || streamsLoading}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <HRZonePieChart
-                  activities={activities}
-                  streamsMap={streamsMap}
-                  zones={zones}
-                  isLoading={zonesLoading || streamsLoading}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <HRTrendChart
-                  activities={activities}
-                  streamsMap={streamsMap}
-                  zones={zones}
-                  isLoading={zonesLoading || streamsLoading}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <PowerZoneChart
-                  activities={activities}
-                  streamsMap={streamsMap}
-                  zones={zones}
-                  isLoading={zonesLoading || streamsLoading}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <LongRideProgressionChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <DurationDistributionChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <PaceSpeedTrendChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <ClimbingFocusChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <AcuteChronicLoadChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-                <div className={styles.fullWidth}>
-                  <ConsistencyHeatmap
-                    activities={activities}
-                    fetchNextPage={fetchNextPage}
-                    hasNextPage={hasNextPage}
-                    isFetchingNextPage={isFetchingNextPage}
-                  />
-                </div>
-                <TopRoutesChart
-                  activities={activities}
-                  fetchNextPage={fetchNextPage}
-                  hasNextPage={hasNextPage}
-                  isFetchingNextPage={isFetchingNextPage}
-                />
-              </div>
-            )}
-          </Box>
-
-          <Separator size="4" />
-        </Flex>
-      </Container>
-
-      <footer className={styles.footer}>
-        <Container size="4">
-          <Flex justify="center" align="center" py="4">
-            <a
-              href="https://www.strava.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={styles.poweredByLink}
-            >
-              <img
-                src="/api_logo_pwrdBy_strava_horiz_orange.svg"
-                alt="Powered by Strava"
-                height="24"
+              <ChartCardSkeleton />
+            </div>
+          ) : (
+            <div className={styles.analyticsGrid}>
+              <WeeklyVolumeChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
               />
-            </a>
-          </Flex>
-        </Container>
-      </footer>
-    </Box>
+              <TrainingIntensityChart
+                activities={activities}
+                streamsMap={streamsMap}
+                zones={zones}
+                isLoading={zonesLoading || streamsLoading}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <HRZoneDistributionChart
+                activities={activities}
+                streamsMap={streamsMap}
+                zones={zones}
+                isLoading={zonesLoading || streamsLoading}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <HRZonePieChart
+                activities={activities}
+                streamsMap={streamsMap}
+                zones={zones}
+                isLoading={zonesLoading || streamsLoading}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <HRTrendChart
+                activities={activities}
+                streamsMap={streamsMap}
+                zones={zones}
+                isLoading={zonesLoading || streamsLoading}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <PowerZoneChart
+                activities={activities}
+                streamsMap={streamsMap}
+                zones={zones}
+                isLoading={zonesLoading || streamsLoading}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <LongRideProgressionChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <DurationDistributionChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <PaceSpeedTrendChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <ClimbingFocusChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <AcuteChronicLoadChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+              <div className={styles.fullWidth}>
+                <ConsistencyHeatmap
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              </div>
+              <TopRoutesChart
+                activities={activities}
+                fetchNextPage={fetchNextPage}
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+              />
+            </div>
+          )}
+        </Box>
+
+        <Separator size="4" />
+      </Flex>
+    </Container>
   );
 }

@@ -15,4 +15,3 @@ export { HRZonePieChart } from "./HRZonePieChart";
 export { PowerZoneChart } from "./PowerZoneChart";
 export { TrainingIntensityChart } from "./TrainingIntensityChart";
 export { HRTrendChart } from "./HRTrendChart";
-

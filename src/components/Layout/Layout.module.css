@@ -1,0 +1,68 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  border-bottom: 1px solid var(--gray-a5);
+  background: var(--color-background);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.headerTitle {
+  border-right: 1px solid var(--gray-a5);
+  padding-right: 0.75rem;
+  margin-right: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .headerTitle {
+    display: none;
+  }
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.container {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Footer with Strava attribution */
+.footer {
+  border-top: 1px solid var(--gray-a5);
+  margin-top: auto;
+}
+
+.poweredByLink {
+  display: block;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+  margin: 1rem 0;
+}
+
+.poweredByLink:hover {
+  opacity: 1;
+}
+
+.poweredByLink img {
+  display: block;
+  height: 12px;
+  width: auto;
+}
