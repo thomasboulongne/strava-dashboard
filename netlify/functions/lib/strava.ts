@@ -248,6 +248,16 @@ export async function withAuth(
   }
 
   try {
+    // PWA Support: Check Authorization header first
+    // PWAs have isolated cookie storage, so they send tokens via header
+    const authHeader = request.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "");
+      // Use the token from header directly - the PWA manages its own refresh
+      return handler(request, token, null);
+    }
+
+    // Fall back to cookie-based auth for regular browser sessions
     const cookieHeader = request.headers.get("cookie");
     const {
       accessToken: initialAccessToken,

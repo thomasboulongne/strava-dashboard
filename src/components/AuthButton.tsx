@@ -2,6 +2,7 @@ import { Avatar, Flex, Text, Button } from "@radix-ui/themes";
 import { Link, useLocation } from "react-router";
 import { useAuthStore } from "../stores/authStore";
 import { getAuthUrl } from "../lib/api";
+import { clearStoredSession } from "../hooks/useSessionCapture";
 import styles from "./AuthButton.module.css";
 
 export function AuthButton() {
@@ -18,6 +19,8 @@ export function AuthButton() {
   };
 
   const handleLogout = () => {
+    // Clear localStorage session for PWA support
+    clearStoredSession();
     window.location.href = "/api/logout";
   };
 

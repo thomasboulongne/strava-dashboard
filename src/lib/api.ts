@@ -11,10 +11,23 @@ import type {
   LinkActivityResponse,
   DeletePlanResponse,
 } from "./strava-types";
+import { getStoredSession, updateStoredSession } from "../hooks/useSessionCapture";
 
 // Use VITE_API_URL env var if set, otherwise default to relative /api path
 // This allows explicit configuration for different environments
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
+/**
+ * Get auth headers for API requests.
+ * Uses localStorage session for PWA support (since PWAs have isolated cookies).
+ */
+function getAuthHeaders(): Record<string, string> {
+  const session = getStoredSession();
+  if (session?.accessToken) {
+    return { Authorization: `Bearer ${session.accessToken}` };
+  }
+  return {};
+}
 
 class ApiError extends Error {
   status: number;
@@ -39,12 +52,33 @@ async function tryRefreshToken(): Promise<boolean> {
   isRefreshing = true;
   refreshPromise = (async () => {
     try {
+      // For PWA support, include the refresh token in the request body
+      const session = getStoredSession();
       const response = await fetch(`${API_BASE}/refresh`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: session?.refreshToken
+          ? JSON.stringify({ refreshToken: session.refreshToken })
+          : undefined,
       });
-      return response.ok;
+
+      if (response.ok) {
+        // Update localStorage with new tokens if returned
+        const data = await response.json();
+        if (data.accessToken) {
+          updateStoredSession({
+            accessToken: data.accessToken,
+            expiresAt: data.expiresAt,
+            ...(data.refreshToken && { refreshToken: data.refreshToken }),
+          });
+        }
+        return true;
+      }
+      return false;
     } catch {
       return false;
     } finally {
@@ -66,6 +100,7 @@ async function fetchApi<T>(
     credentials: "include", // Include cookies
     headers: {
       "Content-Type": "application/json",
+      ...getAuthHeaders(), // PWA support: include token from localStorage
       ...options?.headers,
     },
   });

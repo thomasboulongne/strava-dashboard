@@ -61,7 +61,18 @@ export default async function handler(request: Request, _context: Context) {
     // The dashboard will trigger the sync process
     // Use Headers.append() to properly set multiple Set-Cookie headers
     const headers = new Headers();
-    headers.set("Location", `${getSiteUrl()}/dashboard`);
+
+    // For PWA support: pass session data via URL hash
+    // PWAs have isolated cookie storage, so we pass tokens in the URL
+    // The hash fragment (#) is not sent to the server, keeping it private
+    const sessionData = Buffer.from(JSON.stringify({
+      athleteId: athlete.id,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: tokens.expires_at
+    })).toString('base64');
+
+    headers.set("Location", `${getSiteUrl()}/dashboard#session=${sessionData}`);
     cookies.forEach((cookie) => headers.append("Set-Cookie", cookie));
 
     return new Response(null, {
