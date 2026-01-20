@@ -29,7 +29,7 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-export class ApiError extends Error {
+class ApiError extends Error {
   status: number;
 
   constructor(message: string, status: number) {
