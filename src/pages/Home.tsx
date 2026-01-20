@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { Container, Flex, Text, Callout } from "@radix-ui/themes";
 import { AuthButton } from "../components/AuthButton";
 import { useAuthStore } from "../stores/authStore";
+import { getStoredSession } from "../hooks/useSessionCapture";
 import styles from "./Home.module.css";
 
 export function Home() {
@@ -14,6 +15,12 @@ export function Home() {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
+      navigate("/dashboard");
+      return;
+    }
+
+    const session = getStoredSession();
+    if (session && !isLoading) {
       navigate("/dashboard");
     }
   }, [isAuthenticated, isLoading, navigate]);
