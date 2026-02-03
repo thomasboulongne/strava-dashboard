@@ -97,8 +97,9 @@ function generateWeeklyReport(
   weekName: string,
   notes: string,
   workouts: TrainingWorkoutWithMatch[],
+  unmatchedActivities: UnmatchedActivity[],
 ): string {
-  const summary = calculateWeeklySummary(workouts);
+  const summary = calculateWeeklySummary(workouts, unmatchedActivities);
   const weekRange = formatWeekRange(weekStart);
   const currentDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -177,9 +178,22 @@ function generateWeeklyReport(
     workoutsByDate.set(dateStr, w);
   });
 
+  // Map unmatched activities by date
+  const unmatchedByDate = new Map<string, UnmatchedActivity[]>();
+  unmatchedActivities.forEach((ua) => {
+    const activityDate = ua.data.start_date_local?.split("T")[0];
+    if (activityDate) {
+      if (!unmatchedByDate.has(activityDate)) {
+        unmatchedByDate.set(activityDate, []);
+      }
+      unmatchedByDate.get(activityDate)?.push(ua);
+    }
+  });
+
   weekDates.forEach((date) => {
     const dateStr = formatLocalDate(date);
     const workout = workoutsByDate.get(dateStr);
+    const unmatchedForDay = unmatchedByDate.get(dateStr) || [];
     const dayName = DAYS[date.getDay() === 0 ? 6 : date.getDay() - 1];
     const dateDisplay = `${dayName} ${date.getDate()}`;
 
@@ -189,6 +203,12 @@ function generateWeeklyReport(
         ? formatActivityDuration(activity.moving_time)
         : "—";
       markdown += `| ${dateDisplay} | ${workout.session_name} | ${duration} | ${activity?.trainer ? "Indoor" : "Outdoor"} |\n`;
+    } else if (unmatchedForDay.length > 0) {
+      // Show unmatched activities
+      unmatchedForDay.forEach((ua) => {
+        const activity = ua.data;
+        markdown += `| ${dateDisplay} | ${activity.name} | ${formatActivityDuration(activity.moving_time)} | ${activity.trainer ? "Indoor" : "Outdoor"} |\n`;
+      });
     } else {
       markdown += `| ${dateDisplay} | Rest | — | — |\n`;
     }
@@ -215,7 +235,7 @@ function downloadFile(filename: string, content: string) {
 interface WeeklySummary {
   totalSaddleTime: number;
   longestRide: {
-    workout: TrainingWorkoutWithMatch;
+    workout: TrainingWorkoutWithMatch | null;
     activity: Activity;
   } | null;
   intervalSessions: Array<{
@@ -230,22 +250,30 @@ interface WeeklySummary {
  */
 function calculateWeeklySummary(
   workouts: TrainingWorkoutWithMatch[],
+  unmatchedActivities: UnmatchedActivity[],
 ): WeeklySummary {
   // Filter workouts with matched activities
   const completedWorkouts = workouts.filter((w) => w.matched_activity);
 
-  // Calculate total saddle time (in seconds)
-  const totalSaddleTime = completedWorkouts.reduce((total, workout) => {
-    const activity = workout.matched_activity?.data as Activity | undefined;
+  // Get all activities (matched and unmatched)
+  const matchedActivitiesData = completedWorkouts
+    .map((w) => w.matched_activity?.data as Activity | undefined)
+    .filter((a): a is Activity => !!a);
+  const unmatchedActivitiesData = unmatchedActivities.map((u) => u.data);
+  const allActivities = [...matchedActivitiesData, ...unmatchedActivitiesData];
+
+  // Calculate total saddle time (in seconds) from all activities
+  const totalSaddleTime = allActivities.reduce((total, activity) => {
     return total + (activity?.moving_time || 0);
   }, 0);
 
-  // Find longest ride
+  // Find longest ride from all activities
   let longestRide: {
-    workout: TrainingWorkoutWithMatch;
+    workout: TrainingWorkoutWithMatch | null;
     activity: Activity;
   } | null = null;
 
+  // Check matched activities first
   completedWorkouts.forEach((workout) => {
     const activity = workout.matched_activity?.data as Activity | undefined;
     if (activity) {
@@ -258,7 +286,17 @@ function calculateWeeklySummary(
     }
   });
 
-  // Find interval sessions
+  // Check unmatched activities
+  unmatchedActivitiesData.forEach((activity) => {
+    if (
+      !longestRide ||
+      activity.moving_time > longestRide.activity.moving_time
+    ) {
+      longestRide = { workout: null, activity };
+    }
+  });
+
+  // Find interval sessions (only from matched workouts that have compliance data)
   const intervalSessions: Array<{
     workout: TrainingWorkoutWithMatch;
     activity: Activity;
@@ -287,12 +325,18 @@ function calculateWeeklySummary(
 
 interface WeeklySummaryProps {
   workouts: TrainingWorkoutWithMatch[];
+  unmatchedActivities: UnmatchedActivity[];
 }
 
-function WeeklySummary({ workouts }: WeeklySummaryProps) {
-  const summary = calculateWeeklySummary(workouts);
+function WeeklySummary({ workouts, unmatchedActivities }: WeeklySummaryProps) {
+  const summary = calculateWeeklySummary(workouts, unmatchedActivities);
 
-  if (workouts.length === 0) {
+  // Only show summary if there are any activities (matched or unmatched)
+  const hasActivities =
+    workouts.some((w) => w.matched_activity) ||
+    unmatchedActivities.length > 0;
+
+  if (!hasActivities) {
     return null;
   }
 
@@ -1673,6 +1717,7 @@ export function TrainingPlan() {
       weekName.trim(),
       weekNotes.trim(),
       workouts,
+      unmatchedActivities,
     );
 
     // Generate filename: YYYY-MM-DD_Week-Name.md
@@ -1810,26 +1855,26 @@ export function TrainingPlan() {
                 <FiPlus size={16} />
                 Import Plan
               </Button>
+              {(workouts.length > 0 || unmatchedActivities.length > 0) && (
+                <Button
+                  variant="soft"
+                  color="green"
+                  onClick={() => setShowReportModal(true)}
+                >
+                  <FiFileText size={16} />
+                  Generate Report
+                </Button>
+              )}
               {workouts.length > 0 && (
-                <>
-                  <Button
-                    variant="soft"
-                    color="green"
-                    onClick={() => setShowReportModal(true)}
-                  >
-                    <FiFileText size={16} />
-                    Generate Report
-                  </Button>
-                  <Button
-                    variant="soft"
-                    color="red"
-                    onClick={handleDeleteWeek}
-                    disabled={deleteMutation.isPending}
-                  >
-                    <FiTrash2 size={16} />
-                    Clear Week
-                  </Button>
-                </>
+                <Button
+                  variant="soft"
+                  color="red"
+                  onClick={handleDeleteWeek}
+                  disabled={deleteMutation.isPending}
+                >
+                  <FiTrash2 size={16} />
+                  Clear Week
+                </Button>
               )}
             </Flex>
           </Flex>
@@ -1888,19 +1933,24 @@ export function TrainingPlan() {
             )}
 
           {/* Weekly Summary */}
-          {!planLoading && workouts.length > 0 && (
-            <WeeklySummary workouts={workouts} />
+          {!planLoading && (
+            <WeeklySummary
+              workouts={workouts}
+              unmatchedActivities={unmatchedActivities}
+            />
           )}
 
           {/* Empty state */}
-          {!planLoading && workouts.length === 0 && (
-            <Box className={styles.emptyState}>
-              <Text size="3" color="gray">
-                No training plan for this week. Click "Import Plan" to add
-                workouts from your coach.
-              </Text>
-            </Box>
-          )}
+          {!planLoading &&
+            workouts.length === 0 &&
+            unmatchedActivities.length === 0 && (
+              <Box className={styles.emptyState}>
+                <Text size="3" color="gray">
+                  No training plan for this week. Click "Import Plan" to add
+                  workouts from your coach.
+                </Text>
+              </Box>
+            )}
         </Flex>
       </Container>
 
