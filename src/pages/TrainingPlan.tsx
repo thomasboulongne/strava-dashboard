@@ -132,7 +132,7 @@ function generateWeeklyReport(
     if (activity.average_heartrate) {
       markdown += `- **Average HR:** ${Math.round(activity.average_heartrate)} bpm\n`;
     }
-    if (activity.weighted_average_watts || activity.average_watts) {
+    if (activity.device_watts && (activity.weighted_average_watts || activity.average_watts)) {
       markdown += `- **Average Power:** ${Math.round(activity.weighted_average_watts || activity.average_watts || 0)}W\n`;
     }
     markdown += `- **Location:** ${activity.trainer ? "Indoor" : "Outdoor"}\n`;
@@ -334,7 +334,7 @@ function WeeklySummary({ workouts }: WeeklySummaryProps) {
                   </span>
                 </div>
               )}
-              {(summary.longestRide.activity.weighted_average_watts ||
+              {summary.longestRide.activity.device_watts && (summary.longestRide.activity.weighted_average_watts ||
                 summary.longestRide.activity.average_watts) && (
                 <div className={styles.summaryMetric}>
                   <span className={styles.metricLabel}>Avg Power:</span>
@@ -514,7 +514,7 @@ function DayCell({
                     · {Math.round(matchedActivity.average_heartrate)} bpm
                   </span>
                 )}
-                {(matchedActivity.weighted_average_watts ||
+                {matchedActivity.device_watts && (matchedActivity.weighted_average_watts ||
                   matchedActivity.average_watts) && (
                   <span>
                     {" "}
@@ -885,8 +885,8 @@ function DayCell({
                                     )}
                                   </div>
                                 </div>
-                              ) : matchedActivity?.weighted_average_watts ||
-                                matchedActivity?.average_watts ? (
+                              ) : matchedActivity?.device_watts && (matchedActivity?.weighted_average_watts ||
+                                matchedActivity?.average_watts) ? (
                                 <div className={styles.tooltipDetails}>
                                   <div>
                                     <span className={styles.tooltipLabel}>
@@ -1415,8 +1415,8 @@ function DayCell({
                               )}
                             </div>
                           </div>
-                        ) : matchedActivity?.weighted_average_watts ||
-                          matchedActivity?.average_watts ? (
+                        ) : matchedActivity?.device_watts && (matchedActivity?.weighted_average_watts ||
+                          matchedActivity?.average_watts) ? (
                           <div className={styles.tooltipDetails}>
                             <div>
                               <span className={styles.tooltipLabel}>

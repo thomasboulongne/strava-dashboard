@@ -442,18 +442,11 @@ function parseIntervalStructure(
           durationSec = duration * 60;
         }
 
-        // Try to parse target zone from intensity part or from overall intensity target
-        let targetZone: number | null = null;
-        if (intensityPart) {
-          targetZone = parseIntensityToZone(intensityPart);
-        }
-        if (targetZone === null && intensityTarget) {
-          targetZone = parseIntensityToZone(intensityTarget);
-        }
-
-        // Try to parse recovery time from the same text
+        // IMPORTANT: Parse recovery time FIRST and remove it from text before parsing intensity
+        // This prevents "recovery" keyword from being interpreted as Zone 1
         // Patterns: "/ 3min recovery", "with 2min rest", "(3min recovery)", "/ 2min easy"
         let recoveryDurationSec: number | undefined = undefined;
+        let textWithoutRecovery = text; // Clean text without recovery pattern
 
         const recoveryPatterns = [
           // "/ 3min recovery" or "/ 3min rest" or "/ 3min easy"
@@ -485,9 +478,24 @@ function parseIntervalStructure(
             // Validate reasonable recovery time (10 sec to 30 min)
             if (recoveryDurationSec < 10 || recoveryDurationSec > 1800) {
               recoveryDurationSec = undefined;
+            } else {
+              // Remove recovery pattern from text to avoid "recovery" keyword interfering with intensity parsing
+              textWithoutRecovery = text.replace(recoveryPattern, '').trim();
+              console.log(`[parseIntervalStructure] Extracted recovery: ${recoveryDurationSec}sec, cleaned text: "${textWithoutRecovery}"`);
             }
             break;
           }
+        }
+
+        // Now parse target zone from cleaned text (without recovery pattern)
+        let targetZone: number | null = null;
+        if (intensityPart) {
+          targetZone = parseIntensityToZone(intensityPart);
+        }
+        if (targetZone === null && intensityTarget) {
+          // Parse from cleaned intensity target (with recovery pattern removed)
+          const cleanedIntensityTarget = intensityTarget === text ? textWithoutRecovery : intensityTarget;
+          targetZone = parseIntensityToZone(cleanedIntensityTarget);
         }
 
         // Validate reasonable values
@@ -871,6 +879,13 @@ interface IntervalComplianceResult {
 
 /**
  * Determine if a lap is likely a recovery lap based on heuristics
+ *
+ * Priority order:
+ * 1. Expected recovery duration match (if provided)
+ * 2. Power-based detection (power responds immediately, unlike HR)
+ * 3. Very short duration (< 30% of interval length is almost certainly recovery)
+ * 4. Moderate duration (30-50%) combined with low HR/power
+ * 5. HR-based detection when power unavailable
  */
 function isRecoveryLap(
   lapData: {
@@ -884,16 +899,59 @@ function isRecoveryLap(
   targetZone: number,
   hrZones: HRZoneRange[],
   powerZones: Array<{ min: number; max: number }> | null,
+  expectedRecoveryDurationSec?: number, // NEW: expected recovery duration from training plan
 ): boolean {
   const durationSec = lapData.moving_time || lapData.elapsed_time || 0;
   const avgHR = lapData.average_heartrate || 0;
   // Only use power data if it's from an actual power meter (device_watts: true)
   const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
-  // Heuristic 1: Short duration (less than 50% of expected interval duration)
-  const isShort = durationSec < expectedIntervalDurationSec * 0.5;
+  // HEURISTIC 1: Match expected recovery duration (if provided)
+  // Allow ±30% tolerance since recovery can vary
+  if (expectedRecoveryDurationSec && expectedRecoveryDurationSec > 0) {
+    const recoveryMin = expectedRecoveryDurationSec * 0.7;
+    const recoveryMax = expectedRecoveryDurationSec * 1.3;
+    if (durationSec >= recoveryMin && durationSec <= recoveryMax) {
+      console.log(`[isRecoveryLap] duration=${durationSec}sec matches expected recovery=${expectedRecoveryDurationSec}sec => TRUE`);
+      return true;
+    }
+  }
 
-  // Heuristic 2: Low heart rate (in zone 1 or 2, or below target zone threshold)
+  // HEURISTIC 2: Power-based detection (prioritize when available)
+  // Power responds immediately to effort changes, unlike HR which lags
+  if (avgPower && powerZones && powerZones.length >= 5) {
+    // Check if power is in recovery zones (Zone 1 or 2)
+    const zone2Max = powerZones[1]?.max || 0;
+    const isLowPower = avgPower <= zone2Max;
+
+    // If power is low, it's recovery regardless of HR
+    if (isLowPower) {
+      console.log(`[isRecoveryLap] power=${avgPower}W is low (≤${zone2Max}W) => TRUE`);
+      return true;
+    }
+
+    // If power is high (in target zone or above), it's NOT recovery
+    const targetZoneIndex = targetZone - 1;
+    const targetZoneMin = powerZones[targetZoneIndex]?.min || 0;
+    if (avgPower >= targetZoneMin) {
+      console.log(`[isRecoveryLap] power=${avgPower}W is at/above target zone (≥${targetZoneMin}W) => FALSE`);
+      return false;
+    }
+  }
+
+  // HEURISTIC 3: Very short duration (< 30% of expected interval)
+  // Almost certainly recovery, regardless of HR/power
+  const veryShort = durationSec < expectedIntervalDurationSec * 0.3;
+  if (veryShort) {
+    console.log(`[isRecoveryLap] duration=${durationSec}sec is very short (<30% of ${expectedIntervalDurationSec}sec) => TRUE`);
+    return true;
+  }
+
+  // HEURISTIC 4: Short duration (30-50% of expected interval)
+  const moderatelyShort = durationSec < expectedIntervalDurationSec * 0.5;
+
+  // HEURISTIC 5: HR-based detection
+  // HR lags during recovery, so use relaxed thresholds
   let isLowHR = false;
   if (avgHR > 0 && hrZones.length >= 5) {
     // Check if HR is in recovery zones (Zone 1 or 2)
@@ -912,22 +970,21 @@ function isRecoveryLap(
     }
   }
 
-  // Heuristic 3: Low power (in zone 1 or 2, if power data available)
-  let isLowPower = false;
-  if (avgPower && powerZones && powerZones.length >= 5) {
-    const zone2Max = powerZones[1]?.max || 0;
-    if (avgPower <= zone2Max) {
-      isLowPower = true;
-    }
+  // Combine duration and HR heuristics
+  // Moderately short + low HR = recovery
+  if (moderatelyShort && isLowHR) {
+    console.log(`[isRecoveryLap] duration=${durationSec}sec is moderately short AND HR=${avgHR} is low => TRUE`);
+    return true;
   }
 
-  // Consider it a recovery lap if it's short AND (low HR OR low power)
-  // Or if it has both low HR and low power (even if not that short)
-  const result = (isShort && (isLowHR || isLowPower)) || (isLowHR && isLowPower);
+  // If we have both very low HR and no power data, and duration is reasonable for recovery
+  if (isLowHR && !avgPower && durationSec < expectedIntervalDurationSec * 0.8) {
+    console.log(`[isRecoveryLap] HR=${avgHR} is low, no power data, duration=${durationSec}sec < 80% of interval => TRUE`);
+    return true;
+  }
 
-  console.log(`[isRecoveryLap] duration=${durationSec}sec (short=${isShort}), HR=${avgHR} (low=${isLowHR}), power=${avgPower} (low=${isLowPower}) => ${result}`);
-
-  return result;
+  console.log(`[isRecoveryLap] duration=${durationSec}sec, HR=${avgHR}, power=${avgPower} => FALSE (not recovery)`);
+  return false;
 }
 
 /**
@@ -942,6 +999,7 @@ async function mapLapsToIntervals(
   targetZone: number,
   hrZones: HRZoneRange[],
   powerZones: Array<{ min: number; max: number }> | null,
+  expectedRecoveryDurationSec?: number, // NEW: expected recovery duration from training plan
 ): Promise<IntervalComplianceResult | null> {
   try {
     // Fetch laps for this activity
@@ -1008,9 +1066,19 @@ async function mapLapsToIntervals(
     // We expect intervals to potentially have recovery laps between them
     const intervalLaps: typeof laps = [];
 
-    console.log(`[mapLapsToIntervals] Starting recovery lap filtering...`);
+    console.log(`[mapLapsToIntervals] Starting recovery lap filtering with expectedRecovery=${expectedRecoveryDurationSec}sec...`);
 
-    for (const lap of workingLaps) {
+    // SEQUENTIAL PATTERN DETECTION
+    // Build a profile of each lap to identify work vs recovery patterns
+    const lapProfiles: Array<{
+      lap: typeof laps[0];
+      duration: number;
+      isLikelyRecovery: boolean;
+      confidence: 'high' | 'medium' | 'low';
+    }> = [];
+
+    for (let i = 0; i < workingLaps.length; i++) {
+      const lap = workingLaps[i];
       const lapData = lap.data as {
         elapsed_time?: number;
         moving_time?: number;
@@ -1021,7 +1089,6 @@ async function mapLapsToIntervals(
 
       const duration = lapData.moving_time || lapData.elapsed_time || 0;
       const avgHR = lapData.average_heartrate || 0;
-      // Only use power data if it's from an actual power meter (device_watts: true)
       const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
       // Check if this lap is a recovery lap
@@ -1031,17 +1098,75 @@ async function mapLapsToIntervals(
         targetZone,
         hrZones,
         powerZones,
+        expectedRecoveryDurationSec,
       );
 
-      console.log(`[mapLapsToIntervals] Lap ${lap.lap_index}: duration=${duration}sec, avgHR=${avgHR}, avgPower=${avgPower}, isRecovery=${isRecovery}`);
+      // Determine confidence based on what triggered the decision
+      let confidence: 'high' | 'medium' | 'low' = 'medium';
 
-      if (isRecovery) {
-        // Skip recovery laps
-        console.log(`[mapLapsToIntervals] Skipping lap ${lap.lap_index} as recovery`);
+      // High confidence cases:
+      if (expectedRecoveryDurationSec && duration >= expectedRecoveryDurationSec * 0.7 && duration <= expectedRecoveryDurationSec * 1.3) {
+        confidence = 'high'; // Matches expected recovery duration
+      } else if (avgPower && powerZones) {
+        confidence = 'high'; // Power-based decision (power doesn't lag)
+      } else if (duration < expectedDurationSec * 0.3) {
+        confidence = 'high'; // Very short, almost certainly recovery
+      } else if (duration > expectedDurationSec * 0.8) {
+        confidence = 'high'; // Long enough to be an interval
+      } else {
+        confidence = 'medium'; // Based on HR or moderate duration
+      }
+
+      lapProfiles.push({
+        lap,
+        duration,
+        isLikelyRecovery: isRecovery,
+        confidence,
+      });
+
+      console.log(`[mapLapsToIntervals] Lap ${lap.lap_index}: duration=${duration}sec, avgHR=${avgHR}, avgPower=${avgPower}, isRecovery=${isRecovery}, confidence=${confidence}`);
+    }
+
+    // SEQUENTIAL PATTERN ANALYSIS
+    // Look for work → recovery → work patterns and adjust classifications
+    for (let i = 1; i < lapProfiles.length - 1; i++) {
+      const prev = lapProfiles[i - 1];
+      const current = lapProfiles[i];
+      const next = lapProfiles[i + 1];
+
+      // Pattern: work interval → current → work interval
+      // If current is sandwiched between two work intervals and is shorter, it's likely recovery
+      if (!prev.isLikelyRecovery && !next.isLikelyRecovery) {
+        const isSignificantlyShorter = current.duration < Math.min(prev.duration, next.duration) * 0.6;
+
+        if (isSignificantlyShorter && current.confidence !== 'high') {
+          console.log(`[mapLapsToIntervals] Sequential pattern: Lap ${current.lap.lap_index} sandwiched between work laps and significantly shorter => marking as recovery`);
+          current.isLikelyRecovery = true;
+          current.confidence = 'high';
+        }
+      }
+
+      // Pattern: recovery → current → recovery
+      // If current is sandwiched between two recovery laps and is much longer, it's likely work
+      if (prev.isLikelyRecovery && next.isLikelyRecovery) {
+        const isSignificantlyLonger = current.duration > Math.max(prev.duration, next.duration) * 1.5;
+
+        if (isSignificantlyLonger && current.confidence !== 'high' && current.isLikelyRecovery) {
+          console.log(`[mapLapsToIntervals] Sequential pattern: Lap ${current.lap.lap_index} sandwiched between recovery laps and significantly longer => marking as work`);
+          current.isLikelyRecovery = false;
+          current.confidence = 'high';
+        }
+      }
+    }
+
+    // Now extract interval laps based on final classification
+    for (const profile of lapProfiles) {
+      if (profile.isLikelyRecovery) {
+        console.log(`[mapLapsToIntervals] Skipping lap ${profile.lap.lap_index} as recovery (confidence: ${profile.confidence})`);
         continue;
       }
 
-      intervalLaps.push(lap);
+      intervalLaps.push(profile.lap);
 
       // Stop once we have enough interval laps
       if (intervalLaps.length >= expectedCount) {
@@ -1466,6 +1591,7 @@ async function calculateCompliance(
       targetZone,
       hrZones,
       powerZones,
+      intervalStructure.recoveryDurationSec, // Pass expected recovery duration
     );
 
     console.log(`[calculateCompliance] mapLapsToIntervals result:`, intervalsCompliance ? `source=${intervalsCompliance.source}, score=${intervalsCompliance.score}` : 'null (falling back to stream detection)');
