@@ -379,4 +379,22 @@ export async function deleteTrainingPlan(
   });
 }
 
+/**
+ * Update a training workout
+ */
+export async function updateTrainingWorkout(
+  workoutId: number,
+  updates: {
+    session_name: string;
+    duration_target_minutes: number | null;
+    intensity_target: string | null;
+    notes: string | null;
+  },
+): Promise<LinkActivityResponse> {
+  return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
 export { ApiError };

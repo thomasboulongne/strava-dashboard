@@ -5,6 +5,7 @@ import {
   linkActivityToWorkout,
   unlinkActivityFromWorkout,
   deleteTrainingPlan,
+  updateTrainingWorkout,
 } from "../lib/api";
 import type { TrainingPlanResponse } from "../lib/strava-types";
 
@@ -186,6 +187,37 @@ export function useDeletePlan() {
     onSuccess: (_data, weekStart) => {
       // Invalidate the specific week
       queryClient.invalidateQueries({ queryKey: ["trainingPlan", weekStart] });
+    },
+  });
+}
+
+/**
+ * Hook to update a training workout
+ */
+export function useUpdateWorkout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      workoutId,
+      updates,
+    }: {
+      workoutId: number;
+      updates: {
+        session_name: string;
+        duration_target_minutes: number | null;
+        intensity_target: string | null;
+        notes: string | null;
+      };
+    }) => updateTrainingWorkout(workoutId, updates),
+    onSuccess: (data) => {
+      // Invalidate the specific week containing this workout
+      if (data.workout) {
+        const weekStart = getWeekStart(new Date(data.workout.workout_date));
+        queryClient.invalidateQueries({ queryKey: ["trainingPlan", weekStart] });
+      }
+      // Also invalidate all as fallback
+      queryClient.invalidateQueries({ queryKey: ["trainingPlan"] });
     },
   });
 }

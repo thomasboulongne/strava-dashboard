@@ -1515,7 +1515,8 @@ export function getPowerTrendData(
   streamsMap: Record<number, ActivityStreams>
 ): PowerTrendDataPoint[] {
   return activities
-    .filter((a) => a.average_watts !== undefined || a.device_watts)
+    // Only include activities with actual power meter data (device_watts: true)
+    .filter((a) => a.device_watts && a.average_watts !== undefined)
     .map((activity) => {
       const streams = streamsMap[activity.id];
       const powerData = streams?.watts?.data;
@@ -1545,7 +1546,8 @@ export function computeActivityZoneBreakdown(
   if (!streams) return null;
 
   const hrZoneData = hrZones ? computeHRTimeInZones(streams, hrZones) : [];
-  const powerZoneData = powerZones
+  // Only compute power zones if the activity has actual power meter data (device_watts: true)
+  const powerZoneData = powerZones && activity.device_watts
     ? computePowerTimeInZones(streams, powerZones)
     : undefined;
 

@@ -19,6 +19,7 @@ import {
   FiX,
   FiInfo,
   FiFileText,
+  FiEdit2,
 } from "react-icons/fi";
 import {
   useTrainingPlan,
@@ -26,6 +27,7 @@ import {
   useLinkActivity,
   useUnlinkActivity,
   useDeletePlan,
+  useUpdateWorkout,
   getWeekStart,
   getNextWeek,
   getPreviousWeek,
@@ -421,6 +423,7 @@ interface DayCellProps {
   unmatchedActivities: UnmatchedActivity[];
   onLinkActivity: (workoutId: number, activityId: number) => void;
   onUnlinkActivity: (workoutId: number) => void;
+  onEditWorkout: (workout: TrainingWorkoutWithMatch) => void;
   isLinking: boolean;
   isUnlinking: boolean;
 }
@@ -431,6 +434,7 @@ function DayCell({
   unmatchedActivities,
   onLinkActivity,
   onUnlinkActivity,
+  onEditWorkout,
   isLinking,
   isUnlinking,
 }: DayCellProps) {
@@ -466,7 +470,16 @@ function DayCell({
       {workout ? (
         <div className={styles.workoutContent}>
           <div className={styles.plannedWorkout}>
-            <div className={styles.sessionName}>{workout.session_name}</div>
+            <div className={styles.sessionNameRow}>
+              <div className={styles.sessionName}>{workout.session_name}</div>
+              <button
+                className={styles.editBtn}
+                onClick={() => onEditWorkout(workout)}
+                title="Edit workout"
+              >
+                <FiEdit2 size={14} />
+              </button>
+            </div>
             {workout.duration_target_minutes && (
               <div className={styles.workoutMeta}>
                 {formatDuration(workout.duration_target_minutes)}
@@ -1595,6 +1608,15 @@ export function TrainingPlan() {
   const [weekName, setWeekName] = useState("");
   const [weekNotes, setWeekNotes] = useState("");
 
+  // Edit workout modal state
+  const [editingWorkout, setEditingWorkout] = useState<TrainingWorkoutWithMatch | null>(null);
+  const [editForm, setEditForm] = useState({
+    session_name: '',
+    duration_input: '', // Store as string for flexible input
+    intensity_target: '',
+    notes: '',
+  });
+
   // Data fetching
   const {
     data: planData,
@@ -1607,6 +1629,7 @@ export function TrainingPlan() {
   const linkMutation = useLinkActivity();
   const unlinkMutation = useUnlinkActivity();
   const deleteMutation = useDeletePlan();
+  const updateMutation = useUpdateWorkout();
 
   // Handle import
   const handleImport = async () => {
@@ -1667,6 +1690,79 @@ export function TrainingPlan() {
     setWeekNotes("");
     setShowReportModal(false);
   };
+
+  // Handle edit workout
+  const handleEditWorkout = (workout: TrainingWorkoutWithMatch) => {
+    setEditingWorkout(workout);
+    setEditForm({
+      session_name: workout.session_name,
+      duration_input: workout.duration_target_minutes
+        ? formatDuration(workout.duration_target_minutes)
+        : '',
+      intensity_target: workout.intensity_target || '',
+      notes: workout.notes || '',
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingWorkout || !editForm.session_name.trim()) {
+      return;
+    }
+
+    // Parse duration
+    let durationMinutes: number | null = null;
+    if (editForm.duration_input.trim()) {
+      const parsed = parseDurationInput(editForm.duration_input);
+      if (parsed === null) {
+        // Show error for invalid format
+        return;
+      }
+      durationMinutes = parsed;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        workoutId: editingWorkout.id,
+        updates: {
+          session_name: editForm.session_name.trim(),
+          duration_target_minutes: durationMinutes,
+          intensity_target: editForm.intensity_target.trim() || null,
+          notes: editForm.notes.trim() || null,
+        },
+      });
+      setEditingWorkout(null);
+    } catch (error) {
+      // Error will be shown in modal
+      console.error('Failed to update workout:', error);
+    }
+  };
+
+  // Helper to parse duration input
+  function parseDurationInput(input: string): number | null {
+    const str = input.trim().toLowerCase();
+
+    // "1:30"
+    const colonMatch = str.match(/^(\d+):(\d+)$/);
+    if (colonMatch) {
+      const h = parseInt(colonMatch[1], 10);
+      const m = parseInt(colonMatch[2], 10);
+      return h * 60 + m;
+    }
+
+    // "90", "90min"
+    const minMatch = str.match(/^(\d+)(?:\s*mins?)?$/);
+    if (minMatch) return parseInt(minMatch[1], 10);
+
+    // "1h30m" or "1h30"
+    const hmsMatch = str.match(/^(\d+)h(?:(\d+)m?)?$/);
+    if (hmsMatch) {
+      const h = parseInt(hmsMatch[1], 10);
+      const m = hmsMatch[2] ? parseInt(hmsMatch[2], 10) : 0;
+      return h * 60 + m;
+    }
+
+    return null;
+  }
 
   const weekDates = getWeekDates(currentWeek);
   const workouts = planData?.workouts ?? [];
@@ -1769,6 +1865,7 @@ export function TrainingPlan() {
                     onUnlinkActivity={(workoutId) =>
                       unlinkMutation.mutate(workoutId)
                     }
+                    onEditWorkout={handleEditWorkout}
                     isLinking={linkMutation.isPending}
                     isUnlinking={unlinkMutation.isPending}
                   />
@@ -1906,6 +2003,103 @@ export function TrainingPlan() {
                 disabled={!weekName.trim()}
               >
                 Generate & Download
+              </Button>
+            </Flex>
+          </Flex>
+        </Dialog.Content>
+      </Dialog.Root>
+
+      {/* Edit Workout Modal */}
+      <Dialog.Root
+        open={!!editingWorkout}
+        onOpenChange={(open) => !open && setEditingWorkout(null)}
+      >
+        <Dialog.Content maxWidth="500px">
+          <Dialog.Title>Edit Workout</Dialog.Title>
+          <Dialog.Description size="2" mb="4">
+            Modify workout details. Compliance will be recalculated automatically.
+          </Dialog.Description>
+
+          <Flex direction="column" gap="3">
+            {/* Session Name */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                Session Name *
+              </Text>
+              <input
+                type="text"
+                value={editForm.session_name}
+                onChange={(e) => setEditForm({ ...editForm, session_name: e.target.value })}
+                className={styles.input}
+                placeholder="e.g., Endurance, Intervals"
+              />
+            </label>
+
+            {/* Duration */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                Duration Target
+              </Text>
+              <input
+                type="text"
+                value={editForm.duration_input}
+                onChange={(e) => setEditForm({ ...editForm, duration_input: e.target.value })}
+                className={styles.input}
+                placeholder="e.g., 90, 1:30, 1h30m"
+              />
+              <Text size="1" color="gray">
+                Format: minutes (90), H:MM (1:30), or verbose (1h30m)
+              </Text>
+            </label>
+
+            {/* Intensity */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                Intensity Target
+              </Text>
+              <input
+                type="text"
+                value={editForm.intensity_target}
+                onChange={(e) => setEditForm({ ...editForm, intensity_target: e.target.value })}
+                className={styles.input}
+                placeholder="e.g., Z2, 165 bpm, 3x10min @ Z4"
+              />
+            </label>
+
+            {/* Notes */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                Notes
+              </Text>
+              <TextArea
+                value={editForm.notes}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                placeholder="Additional details, recovery between intervals, etc."
+                style={{ minHeight: "80px" }}
+              />
+            </label>
+
+            {/* Error Display */}
+            {updateMutation.error && (
+              <Text color="red" size="2">
+                {updateMutation.error instanceof Error
+                  ? updateMutation.error.message
+                  : "Failed to update workout"}
+              </Text>
+            )}
+
+            {/* Actions */}
+            <Flex gap="3" justify="end">
+              <Dialog.Close>
+                <Button variant="soft" color="gray">
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button
+                onClick={handleSaveEdit}
+                disabled={!editForm.session_name.trim() || updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "Saving..." : "Save Changes"}
               </Button>
             </Flex>
           </Flex>

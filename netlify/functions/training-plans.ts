@@ -11,6 +11,7 @@ import {
   getTrainingWorkoutsForWeek,
   getTrainingWorkoutById,
   upsertTrainingWorkoutsBatch,
+  updateTrainingWorkout,
   linkActivityToWorkout,
   unlinkActivityFromWorkout,
   deleteTrainingWorkoutsForWeek,
@@ -48,6 +49,44 @@ function formatDateString(date: Date | string): string {
 function parseLocalDate(dateStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+/**
+ * Parse duration string to minutes
+ * Accepts: "90", "1:30", "90min", "1h30m"
+ */
+function parseDuration(input: string | number | null): number | null {
+  if (input === null || input === "") return null;
+
+  if (typeof input === "number") return input;
+
+  const str = input.toString().trim().toLowerCase();
+
+  // "90min", "90mins", "90 min"
+  const minMatch = str.match(/^(\d+)\s*mins?$/);
+  if (minMatch) return parseInt(minMatch[1], 10);
+
+  // "1:30"
+  const colonMatch = str.match(/^(\d+):(\d+)$/);
+  if (colonMatch) {
+    const h = parseInt(colonMatch[1], 10);
+    const m = parseInt(colonMatch[2], 10);
+    return h * 60 + m;
+  }
+
+  // "1h30m" or "1h30"
+  const hmsMatch = str.match(/^(\d+)h(?:(\d+)m?)?$/);
+  if (hmsMatch) {
+    const h = parseInt(hmsMatch[1], 10);
+    const m = hmsMatch[2] ? parseInt(hmsMatch[2], 10) : 0;
+    return h * 60 + m;
+  }
+
+  // Just a number
+  const numMatch = str.match(/^(\d+)$/);
+  if (numMatch) return parseInt(numMatch[1], 10);
+
+  return null; // Invalid format
 }
 
 // Activity type mapping for auto-matching
@@ -355,35 +394,40 @@ interface ParsedIntervalStructure {
 
 /**
  * Parse interval structure from text (e.g., "3x10min tempo", "6x1' hard", "4x5mins Z4")
- * Searches session_name, notes, and intensity_target fields
+ * Searches session_name and intensity_target fields only (notes are ignored for flexibility)
  */
 function parseIntervalStructure(
   sessionName: string,
-  notes: string | null,
   intensityTarget: string | null,
 ): ParsedIntervalStructure | null {
-  // Combine all text sources to search
-  const textSources = [sessionName, notes, intensityTarget].filter(Boolean);
+  console.log(`[parseIntervalStructure] Parsing: sessionName="${sessionName}", intensity="${intensityTarget}"`);
+
+  // Combine text sources to search (notes excluded for flexibility)
+  const textSources = [sessionName, intensityTarget].filter(Boolean);
 
   // Pattern: NxDURATION [UNIT] [@ INTENSITY]
   // Examples: 3x10min, 6x1', 4x5mins Z4, 5x2min @ threshold, 3x10' tempo
+  // Note: Also matches × (multiplication sign U+00D7) as well as x
   const patterns = [
-    // 3x10min, 3x10mins, 3x10minute, 3x10minutes
-    /(\d+)\s*x\s*(\d+)\s*(min(?:ute)?s?)\s*(?:@\s*)?(\S+)?/i,
-    // 3x10' (single quote for minutes)
-    /(\d+)\s*x\s*(\d+)\s*['′]\s*(?:@\s*)?(\S+)?/i,
-    // 3x30sec, 3x30secs, 3x30second, 3x30seconds
-    /(\d+)\s*x\s*(\d+)\s*(sec(?:ond)?s?)\s*(?:@\s*)?(\S+)?/i,
-    // 3x30" (double quote for seconds)
-    /(\d+)\s*x\s*(\d+)\s*["″]\s*(?:@\s*)?(\S+)?/i,
+    // 3x10min, 3x10mins, 3x10minute, 3x10minutes (with x or ×)
+    /(\d+)\s*[x×]\s*(\d+)\s*(min(?:ute)?s?)\s*(?:@\s*)?(\S+)?/i,
+    // 3x10' (single quote for minutes, with x or ×)
+    /(\d+)\s*[x×]\s*(\d+)\s*['′]\s*(?:@\s*)?(\S+)?/i,
+    // 3x30sec, 3x30secs, 3x30second, 3x30seconds (with x or ×)
+    /(\d+)\s*[x×]\s*(\d+)\s*(sec(?:ond)?s?)\s*(?:@\s*)?(\S+)?/i,
+    // 3x30" (double quote for seconds, with x or ×)
+    /(\d+)\s*[x×]\s*(\d+)\s*["″]\s*(?:@\s*)?(\S+)?/i,
   ];
 
   for (const text of textSources) {
     if (!text) continue;
 
+    console.log(`[parseIntervalStructure] Checking text: "${text}"`);
+
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
+        console.log(`[parseIntervalStructure] Pattern matched! Match:`, match);
         const count = parseInt(match[1], 10);
         const duration = parseInt(match[2], 10);
         const unit = match[3]?.toLowerCase() || "";
@@ -453,18 +497,23 @@ function parseIntervalStructure(
           durationSec >= 10 &&
           durationSec <= 3600
         ) {
-          return {
+          const result = {
             count,
             durationSec,
             targetZone,
             rawText: match[0],
             recoveryDurationSec,
           };
+          console.log(`[parseIntervalStructure] Successfully parsed:`, result);
+          return result;
+        } else {
+          console.log(`[parseIntervalStructure] Validation failed: count=${count}, durationSec=${durationSec}`);
         }
       }
     }
   }
 
+  console.log(`[parseIntervalStructure] No interval structure found`);
   return null;
 }
 
@@ -829,6 +878,7 @@ function isRecoveryLap(
     moving_time?: number;
     average_heartrate?: number;
     average_watts?: number;
+    device_watts?: boolean;
   },
   expectedIntervalDurationSec: number,
   targetZone: number,
@@ -837,7 +887,8 @@ function isRecoveryLap(
 ): boolean {
   const durationSec = lapData.moving_time || lapData.elapsed_time || 0;
   const avgHR = lapData.average_heartrate || 0;
-  const avgPower = lapData.average_watts;
+  // Only use power data if it's from an actual power meter (device_watts: true)
+  const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
   // Heuristic 1: Short duration (less than 50% of expected interval duration)
   const isShort = durationSec < expectedIntervalDurationSec * 0.5;
@@ -872,7 +923,11 @@ function isRecoveryLap(
 
   // Consider it a recovery lap if it's short AND (low HR OR low power)
   // Or if it has both low HR and low power (even if not that short)
-  return (isShort && (isLowHR || isLowPower)) || (isLowHR && isLowPower);
+  const result = (isShort && (isLowHR || isLowPower)) || (isLowHR && isLowPower);
+
+  console.log(`[isRecoveryLap] duration=${durationSec}sec (short=${isShort}), HR=${avgHR} (low=${isLowHR}), power=${avgPower} (low=${isLowPower}) => ${result}`);
+
+  return result;
 }
 
 /**
@@ -892,7 +947,11 @@ async function mapLapsToIntervals(
     // Fetch laps for this activity
     const laps = await getLapsForActivity(activityId);
 
+    console.log(`[mapLapsToIntervals] Activity ${activityId}: Found ${laps.length} laps`);
+    console.log(`[mapLapsToIntervals] Expected: ${expectedCount} intervals of ${expectedDurationSec}sec at Zone ${targetZone}`);
+
     if (laps.length === 0) {
+      console.log(`[mapLapsToIntervals] No laps available for activity ${activityId}`);
       return null; // No laps available
     }
 
@@ -908,12 +967,16 @@ async function mapLapsToIntervals(
         moving_time?: number;
         average_heartrate?: number;
         average_watts?: number;
+        device_watts?: boolean;
       };
       const firstLapDuration =
         firstLapData.elapsed_time || laps[0].elapsed_time;
 
+      console.log(`[mapLapsToIntervals] First lap duration: ${firstLapDuration}sec, threshold: ${expectedDurationSec * 1.5}sec`);
+
       if (firstLapDuration > expectedDurationSec * 1.5) {
         // First lap is likely warm-up
+        console.log(`[mapLapsToIntervals] Skipping first lap as warm-up`);
         workingLaps = laps.slice(1);
       }
 
@@ -925,19 +988,27 @@ async function mapLapsToIntervals(
           moving_time?: number;
           average_heartrate?: number;
           average_watts?: number;
+          device_watts?: boolean;
         };
         const lastLapDuration =
           lastLapData.elapsed_time || lastLap.elapsed_time;
 
+        console.log(`[mapLapsToIntervals] Last lap duration: ${lastLapDuration}sec, threshold: ${expectedDurationSec * 1.5}sec`);
+
         if (lastLapDuration > expectedDurationSec * 1.5) {
+          console.log(`[mapLapsToIntervals] Skipping last lap as cool-down`);
           workingLaps = workingLaps.slice(0, -1);
         }
       }
     }
 
+    console.log(`[mapLapsToIntervals] After warm-up/cool-down filtering: ${workingLaps.length} laps remaining`);
+
     // Filter out recovery laps intelligently
     // We expect intervals to potentially have recovery laps between them
     const intervalLaps: typeof laps = [];
+
+    console.log(`[mapLapsToIntervals] Starting recovery lap filtering...`);
 
     for (const lap of workingLaps) {
       const lapData = lap.data as {
@@ -945,19 +1016,28 @@ async function mapLapsToIntervals(
         moving_time?: number;
         average_heartrate?: number;
         average_watts?: number;
+        device_watts?: boolean;
       };
 
+      const duration = lapData.moving_time || lapData.elapsed_time || 0;
+      const avgHR = lapData.average_heartrate || 0;
+      // Only use power data if it's from an actual power meter (device_watts: true)
+      const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
+
       // Check if this lap is a recovery lap
-      if (
-        isRecoveryLap(
-          lapData,
-          expectedDurationSec,
-          targetZone,
-          hrZones,
-          powerZones,
-        )
-      ) {
+      const isRecovery = isRecoveryLap(
+        lapData,
+        expectedDurationSec,
+        targetZone,
+        hrZones,
+        powerZones,
+      );
+
+      console.log(`[mapLapsToIntervals] Lap ${lap.lap_index}: duration=${duration}sec, avgHR=${avgHR}, avgPower=${avgPower}, isRecovery=${isRecovery}`);
+
+      if (isRecovery) {
         // Skip recovery laps
+        console.log(`[mapLapsToIntervals] Skipping lap ${lap.lap_index} as recovery`);
         continue;
       }
 
@@ -968,6 +1048,8 @@ async function mapLapsToIntervals(
         break;
       }
     }
+
+    console.log(`[mapLapsToIntervals] After recovery filtering: ${intervalLaps.length} interval laps identified`);
 
     // Use the filtered interval laps for analysis
     const lapsToAnalyze = intervalLaps;
@@ -995,12 +1077,14 @@ async function mapLapsToIntervals(
           moving_time?: number;
           average_heartrate?: number;
           average_watts?: number;
+          device_watts?: boolean;
         };
 
         const durationSec =
           lapData.moving_time || lapData.elapsed_time || lap.moving_time;
         const avgHR = lapData.average_heartrate || 0;
-        const avgPower = lapData.average_watts;
+        // Only use power data if it's from an actual power meter (device_watts: true)
+        const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
         // Determine which zone the lap falls into
         // Prioritize power zones when power data is available
@@ -1067,15 +1151,20 @@ async function mapLapsToIntervals(
       (r) => r.status === "completed",
     ).length;
 
-    return {
+    const result = {
       expected: expectedCount,
       completed: completedCount,
       score: Math.round(intervalScoreSum / expectedCount),
       targetDurationSec: expectedDurationSec,
       targetZone,
-      source: "laps",
+      source: "laps" as const,
       intervals: intervalResults,
     };
+
+    console.log(`[mapLapsToIntervals] Final result: ${completedCount}/${expectedCount} completed, score: ${result.score}%`);
+    console.log(`[mapLapsToIntervals] Interval details:`, intervalResults.map(i => `#${i.index}: ${i.status} (${i.durationSec}sec)`));
+
+    return result;
   } catch (error) {
     console.error("Error mapping laps to intervals:", error);
     return null;
@@ -1137,6 +1226,7 @@ async function calculateCompliance(
     average_heartrate?: number;
     average_watts?: number;
     weighted_average_watts?: number;
+    device_watts?: boolean;
   };
 
   let durationScore: number | null = null;
@@ -1264,8 +1354,10 @@ async function calculateCompliance(
   }
 
   // Power Zone compliance (similar weight to HR Zone)
+  // Only use power data if it's from an actual power meter (device_watts: true)
   if (
     workout.intensity_target &&
+    data.device_watts &&
     (data.average_watts || data.weighted_average_watts)
   ) {
     const avgPower = data.weighted_average_watts || data.average_watts || 0;
@@ -1355,12 +1447,16 @@ async function calculateCompliance(
   // Interval compliance - parse and analyze interval structure
   const intervalStructure = parseIntervalStructure(
     workout.session_name,
-    workout.notes,
     workout.intensity_target,
   );
 
+  console.log(`[calculateCompliance] Activity ${activity.id}: Parsed interval structure:`, intervalStructure);
+  console.log(`[calculateCompliance] Workout: session_name="${workout.session_name}", intensity="${workout.intensity_target}"`);
+
   if (intervalStructure && hrZones && hrZones.length >= 5) {
     const targetZone = intervalStructure.targetZone ?? 3; // Default to Zone 3 (tempo)
+
+    console.log(`[calculateCompliance] Attempting to map laps to intervals for activity ${activity.id}`);
 
     // Try laps first - they're more reliable if available
     intervalsCompliance = await mapLapsToIntervals(
@@ -1371,6 +1467,8 @@ async function calculateCompliance(
       hrZones,
       powerZones,
     );
+
+    console.log(`[calculateCompliance] mapLapsToIntervals result:`, intervalsCompliance ? `source=${intervalsCompliance.source}, score=${intervalsCompliance.score}` : 'null (falling back to stream detection)');
 
     // Fall back to stream detection if laps aren't available or didn't work
     // Prioritize power detection when power zones and power data are available
@@ -1390,9 +1488,11 @@ async function calculateCompliance(
           let detectionSource: "power_detection" | "hr_detection" = "hr_detection";
 
           // Try power detection first if power zones and power data are available
+          // Only use power data if it's from an actual power meter (device_watts: true)
           if (
             powerZones &&
             powerZones.length >= 5 &&
+            data.device_watts &&
             streamData.time?.data &&
             streamData.watts?.data
           ) {
@@ -1423,7 +1523,8 @@ async function calculateCompliance(
             detectionSource = "hr_detection";
 
             // Calculate average power for each detected interval if power data is available
-            if (streamData.watts?.data && streamData.time?.data) {
+            // Only use power data if it's from an actual power meter (device_watts: true)
+            if (data.device_watts && streamData.watts?.data && streamData.time?.data) {
               for (const interval of detectedIntervals) {
                 if (interval) {
                   // Find power values within this interval's time range
@@ -1606,6 +1707,10 @@ async function calculateCompliance(
 }
 
 export default async function handler(request: Request, _context: Context) {
+  console.log('===== TRAINING PLANS HANDLER CALLED =====');
+  console.log('Method:', request.method);
+  console.log('URL:', request.url);
+
   // Handle CORS preflight
   if (request.method === "OPTIONS") {
     return handleCorsPreFlight();
@@ -1614,11 +1719,121 @@ export default async function handler(request: Request, _context: Context) {
   const url = new URL(request.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
 
+  console.log('===== TRAINING PLANS REQUEST =====');
+  console.log('Method:', request.method);
+  console.log('URL:', request.url);
+  console.log('Pathname:', url.pathname);
+  console.log('PathParts:', pathParts);
+
   // Check if this is a link/unlink request: /api/training-plans/:id/link or /unlink
   const isLinkRequest =
     pathParts.length >= 3 && pathParts[pathParts.length - 1] === "link";
   const isUnlinkRequest =
     pathParts.length >= 3 && pathParts[pathParts.length - 1] === "unlink";
+
+  // PATCH /api/training-plans/:id - Update workout
+  // Check if the last path part is a number (workout ID) and not link/unlink
+  const lastPart = pathParts[pathParts.length - 1];
+  const isUpdateRequest =
+    request.method === "PATCH" &&
+    !isLinkRequest &&
+    !isUnlinkRequest &&
+    !isNaN(parseInt(lastPart, 10));
+
+  console.log('isLinkRequest:', isLinkRequest);
+  console.log('isUnlinkRequest:', isUnlinkRequest);
+  console.log('lastPart:', lastPart);
+  console.log('isUpdateRequest:', isUpdateRequest);
+
+  if (isUpdateRequest) {
+    console.log('>>> ENTERING UPDATE REQUEST HANDLER');
+
+    return withAuth(request, async (req, _accessToken, newCookies) => {
+      try {
+        const cookieHeader = req.headers.get("cookie");
+        const { athleteId } = parseTokensFromCookies(cookieHeader);
+
+        if (!athleteId) {
+          return jsonResponse({ error: "No athlete ID" }, 400);
+        }
+
+        // Extract workout ID from path
+        const workoutIdStr = pathParts[pathParts.length - 1];
+        const workoutId = parseInt(workoutIdStr, 10);
+
+        console.log('athleteId:', athleteId);
+        console.log('workoutId:', workoutId);
+
+        if (isNaN(workoutId)) {
+          return jsonResponse({ error: "Invalid workout ID" }, 400);
+        }
+
+        const body = await req.json();
+        const { session_name, duration_target_minutes, intensity_target, notes } =
+          body;
+
+        console.log('Request body:', { session_name, duration_target_minutes, intensity_target, notes });
+
+        // Validate required fields
+        if (
+          !session_name ||
+          typeof session_name !== "string" ||
+          !session_name.trim()
+        ) {
+          return jsonResponse({ error: "Session name is required" }, 400);
+        }
+
+        // Authorization: verify workout belongs to athlete
+        console.log('Looking up workout ID:', workoutId);
+        const existingWorkout = await getTrainingWorkoutById(workoutId);
+        console.log('Found workout:', existingWorkout);
+
+        if (!existingWorkout) {
+          console.log('ERROR: Workout not found in database');
+          return jsonResponse({ error: "Workout not found" }, 404);
+        }
+
+        // Compare as numbers to avoid type mismatch (athleteId might be string from cookies)
+        if (Number(existingWorkout.athlete_id) !== Number(athleteId)) {
+          console.log('ERROR: Athlete mismatch - workout.athlete_id:', existingWorkout.athlete_id, '(type:', typeof existingWorkout.athlete_id, ') vs athleteId:', athleteId, '(type:', typeof athleteId, ')');
+          return jsonResponse({ error: "Workout not found" }, 404);
+        }
+
+        console.log('Authorization passed!');
+
+        // Parse duration (handle multiple formats)
+        let durationMinutes = null;
+        if (
+          duration_target_minutes !== null &&
+          duration_target_minutes !== undefined
+        ) {
+          durationMinutes = parseDuration(duration_target_minutes);
+          if (durationMinutes === null && duration_target_minutes !== null) {
+            return jsonResponse({ error: "Invalid duration format" }, 400);
+          }
+        }
+
+        // Update workout
+        const updatedWorkout = await updateTrainingWorkout(workoutId, {
+          session_name: session_name.trim(),
+          duration_target_minutes: durationMinutes,
+          intensity_target: intensity_target || null,
+          notes: notes || null,
+        });
+
+        return jsonResponseWithCookies(
+          {
+            success: true,
+            workout: updatedWorkout,
+          },
+          newCookies,
+        );
+      } catch (error) {
+        console.error("Error updating workout:", error);
+        return jsonResponse({ error: "Failed to update workout" }, 500);
+      }
+    });
+  }
 
   if (request.method === "PATCH" && (isLinkRequest || isUnlinkRequest)) {
     return withAuth(request, async (req, _accessToken, newCookies) => {

@@ -53,9 +53,9 @@ function PowerZoneContent({
   const data = useMemo(() => {
     if (!zones?.power?.zones) return [];
 
-    // Filter to activities with power data
+    // Filter to activities with actual power meter data (device_watts: true)
     const powerActivities = filteredActivities.filter(
-      (a) => a.average_watts !== undefined || a.device_watts
+      (a) => a.device_watts && a.average_watts !== undefined
     );
 
     // Compute zone breakdowns for all activities with streams
@@ -189,7 +189,7 @@ export function PowerZoneChart({
 }: PowerZoneChartProps) {
   const hasStreams = Object.keys(streamsMap).length > 0;
   const hasPowerActivities = activities.some(
-    (a) => a.average_watts !== undefined || a.device_watts
+    (a) => a.device_watts && a.average_watts !== undefined
   );
 
   if (!hasPowerActivities && !isLoading) {

@@ -883,6 +883,31 @@ export async function upsertTrainingWorkout(workout: {
   return result[0] as DbTrainingWorkout;
 }
 
+export async function updateTrainingWorkout(
+  workoutId: number,
+  updates: {
+    session_name: string;
+    duration_target_minutes: number | null;
+    intensity_target: string | null;
+    notes: string | null;
+  }
+): Promise<DbTrainingWorkout> {
+  const sql = getDb();
+
+  const result = await sql`
+    UPDATE training_workouts
+    SET session_name = ${updates.session_name},
+        duration_target_minutes = ${updates.duration_target_minutes},
+        intensity_target = ${updates.intensity_target},
+        notes = ${updates.notes},
+        updated_at = NOW()
+    WHERE id = ${workoutId}
+    RETURNING *
+  `;
+
+  return result[0] as DbTrainingWorkout;
+}
+
 export async function upsertTrainingWorkoutsBatch(
   workouts: Array<{
     athlete_id: number;
