@@ -14,11 +14,14 @@ import {
   hasActivity,
   upsertActivity,
   getStreamsSyncProgress,
+  getLapsSyncProgress,
+  upsertActivityLapsBatch,
 } from "./lib/db.js";
 import {
   getValidAccessToken,
   fetchActivitiesPage,
   shouldPauseForRateLimit,
+  extractLaps,
   type RateLimitInfo,
 } from "./lib/strava-api.js";
 
@@ -40,11 +43,13 @@ export default async function handler(request: Request, _context: Context) {
     const activityCount = await getActivityCount(athleteId);
     const latestActivityDate = await getLatestActivityDate(athleteId);
     const streamsProgress = await getStreamsSyncProgress(athleteId);
+    const lapsProgress = await getLapsSyncProgress(athleteId);
 
     return jsonResponse({
       activityCount,
       latestActivityDate,
       streams: streamsProgress,
+      laps: lapsProgress,
       // No more sync jobs - sync is now stateless and on-demand
       syncJob: null,
     }, 200);
@@ -122,6 +127,12 @@ export default async function handler(request: Request, _context: Context) {
         // We don't have this activity - save it
         await upsertActivity(activityId, athleteId, activity, activityDate);
         totalSynced++;
+
+        // Check if activity has laps and save them
+        const laps = extractLaps(activity, athleteId);
+        if (laps && laps.length > 0) {
+          await upsertActivityLapsBatch(laps);
+        }
       }
 
       // If we didn't find an existing activity but got fewer than a full page,

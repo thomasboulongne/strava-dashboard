@@ -4,9 +4,11 @@ import {
   getSyncStatus,
   triggerSync,
   triggerStreamsSync,
+  triggerLapsSync,
   type SyncStatusResponse,
   type SyncTriggerResponse,
   type StreamsSyncTriggerResponse,
+  type LapsSyncTriggerResponse,
 } from "../lib/api";
 
 // Polling interval for sync status (longer since we rely on webhooks)
@@ -19,11 +21,16 @@ export function useSync() {
   // State for render-time values
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [streamsSyncInProgress, setStreamsSyncInProgress] = useState(false);
+  const [lapsSyncInProgress, setLapsSyncInProgress] = useState(false);
   // Refs for synchronous access in callbacks/effects
   const syncInProgressRef = useRef(false);
   const streamsSyncInProgressRef = useRef(false);
+  const lapsSyncInProgressRef = useRef(false);
   const hasCheckedInitialSyncRef = useRef(false);
   const streamsSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const lapsSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
 
@@ -38,7 +45,11 @@ export function useSync() {
     queryFn: getSyncStatus,
     // Poll less frequently since webhooks keep us up-to-date
     refetchInterval: () => {
-      if (syncInProgressRef.current || streamsSyncInProgressRef.current) {
+      if (
+        syncInProgressRef.current ||
+        streamsSyncInProgressRef.current ||
+        lapsSyncInProgressRef.current
+      ) {
         return ACTIVE_SYNC_POLL_INTERVAL;
       }
       return STATUS_POLL_INTERVAL;
@@ -105,6 +116,32 @@ export function useSync() {
       },
     });
 
+  // Mutation to trigger/continue laps sync
+  const { mutate: triggerLapsSyncMutation, isPending: isLapsSyncing } =
+    useMutation<LapsSyncTriggerResponse>({
+      mutationFn: triggerLapsSync,
+      onSuccess: (data) => {
+        refetchStatus();
+
+        if (data.status === "in_progress" && data.hasMore) {
+          lapsSyncInProgressRef.current = true;
+          setLapsSyncInProgress(true);
+          setTimeout(() => {
+            if (lapsSyncInProgressRef.current) {
+              triggerLapsSyncMutation();
+            }
+          }, 1000);
+        } else {
+          lapsSyncInProgressRef.current = false;
+          setLapsSyncInProgress(false);
+        }
+      },
+      onError: () => {
+        lapsSyncInProgressRef.current = false;
+        setLapsSyncInProgress(false);
+      },
+    });
+
   // Manually trigger a sync (for refresh button)
   const forceSync = useCallback(() => {
     if (syncInProgressRef.current) return;
@@ -131,6 +168,20 @@ export function useSync() {
   const stopStreamsSync = useCallback(() => {
     streamsSyncInProgressRef.current = false;
     setStreamsSyncInProgress(false);
+  }, []);
+
+  // Start laps sync
+  const startLapsSync = useCallback(() => {
+    if (lapsSyncInProgressRef.current) return;
+    lapsSyncInProgressRef.current = true;
+    setLapsSyncInProgress(true);
+    triggerLapsSyncMutation();
+  }, [triggerLapsSyncMutation]);
+
+  // Stop laps sync
+  const stopLapsSync = useCallback(() => {
+    lapsSyncInProgressRef.current = false;
+    setLapsSyncInProgress(false);
   }, []);
 
   // Auto-trigger initial sync ONLY if we have 0 activities
@@ -178,13 +229,54 @@ export function useSync() {
     }
   }, [statusLoading, activityCount, streamsPending, startStreamsSync]);
 
+  // Auto-start laps sync after streams are done and there are pending laps
+  const lapsPending = syncStatus?.laps?.pending ?? 0;
+  useEffect(() => {
+    if (
+      !statusLoading &&
+      activityCount > 0 &&
+      lapsPending > 0 &&
+      !syncInProgressRef.current &&
+      !streamsSyncInProgressRef.current &&
+      !lapsSyncInProgressRef.current &&
+      streamsPending === 0 // Wait for streams to finish
+    ) {
+      // Clear any existing timeout
+      if (lapsSyncTimeoutRef.current) {
+        clearTimeout(lapsSyncTimeoutRef.current);
+      }
+
+      // Delay laps sync start to avoid overwhelming API
+      lapsSyncTimeoutRef.current = setTimeout(() => {
+        if (
+          !lapsSyncInProgressRef.current &&
+          !streamsSyncInProgressRef.current &&
+          !syncInProgressRef.current
+        ) {
+          startLapsSync();
+        }
+        lapsSyncTimeoutRef.current = null;
+      }, 2000);
+    }
+  }, [
+    statusLoading,
+    activityCount,
+    lapsPending,
+    streamsPending,
+    startLapsSync,
+  ]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       syncInProgressRef.current = false;
       streamsSyncInProgressRef.current = false;
+      lapsSyncInProgressRef.current = false;
       if (streamsSyncTimeoutRef.current) {
         clearTimeout(streamsSyncTimeoutRef.current);
+      }
+      if (lapsSyncTimeoutRef.current) {
+        clearTimeout(lapsSyncTimeoutRef.current);
       }
     };
   }, []);
@@ -206,11 +298,20 @@ export function useSync() {
       ? syncStatus.streams.pending === 0 && syncStatus.streams.total > 0
       : false,
 
+    // Laps sync status
+    lapsProgress: syncStatus?.laps ?? null,
+    isLapsSyncing: isLapsSyncing || lapsSyncInProgress,
+    lapsComplete: syncStatus?.laps
+      ? syncStatus.laps.pending === 0 && syncStatus.laps.total > 0
+      : false,
+
     // Actions
     forceSync,
     stopSync,
     startStreamsSync,
     stopStreamsSync,
+    startLapsSync,
+    stopLapsSync,
     refetchStatus,
   };
 }

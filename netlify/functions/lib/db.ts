@@ -117,6 +117,21 @@ export interface DbTrainingWorkout {
   updated_at: Date;
 }
 
+// Activity lap from Strava
+export interface DbActivityLap {
+  id: number; // Strava lap ID
+  activity_id: number;
+  athlete_id: number;
+  lap_index: number;
+  data: Record<string, unknown>; // Full Strava lap JSON
+  start_date: Date;
+  elapsed_time: number;
+  moving_time: number;
+  distance: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Schema initialization - run once to set up tables
 export async function initializeSchema() {
   const sql = getDb();
@@ -235,6 +250,32 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_training_workouts_date ON training_workouts(workout_date)
+  `;
+
+  // Activity laps table - stores lap data for activities
+  await sql`
+    CREATE TABLE IF NOT EXISTS activity_laps (
+      id BIGINT PRIMARY KEY,
+      activity_id BIGINT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lap_index INTEGER NOT NULL,
+      data JSONB NOT NULL,
+      start_date TIMESTAMPTZ NOT NULL,
+      elapsed_time INTEGER NOT NULL,
+      moving_time INTEGER NOT NULL,
+      distance REAL NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(activity_id, lap_index)
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_activity_laps_activity_id ON activity_laps(activity_id)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_activity_laps_athlete_id ON activity_laps(athlete_id)
   `;
 
   return { success: true };
@@ -683,6 +724,37 @@ export async function getStreamsSyncProgress(athleteId: number): Promise<{
   };
 }
 
+export async function getLapsSyncProgress(athleteId: number): Promise<{
+  total: number;
+  withLaps: number;
+  pending: number;
+}> {
+  const sql = getDb();
+
+  // Count total activities
+  const totalResult = await sql`
+    SELECT COUNT(*) as count
+    FROM activities
+    WHERE athlete_id = ${athleteId}
+  `;
+
+  // Count activities with laps
+  const withLapsResult = await sql`
+    SELECT COUNT(DISTINCT activity_id) as count
+    FROM activity_laps
+    WHERE athlete_id = ${athleteId}
+  `;
+
+  const total = parseInt(totalResult[0].count as string, 10);
+  const withLaps = parseInt(withLapsResult[0].count as string, 10);
+
+  return {
+    total,
+    withLaps,
+    pending: total - withLaps,
+  };
+}
+
 // Batch fetch activity streams for multiple activities
 export async function getActivityStreamsBatch(
   athleteId: number,
@@ -986,4 +1058,116 @@ export async function getActivitiesForDateRange(
   `;
 
   return result as DbActivity[];
+}
+
+// Activity lap operations
+export async function upsertActivityLap(lap: {
+  id: number;
+  activity_id: number;
+  athlete_id: number;
+  lap_index: number;
+  data: Record<string, unknown>;
+  start_date: string;
+  elapsed_time: number;
+  moving_time: number;
+  distance: number;
+}): Promise<void> {
+  const sql = getDb();
+  await sql`
+    INSERT INTO activity_laps (
+      id, activity_id, athlete_id, lap_index, data, start_date,
+      elapsed_time, moving_time, distance, updated_at
+    )
+    VALUES (
+      ${lap.id}, ${lap.activity_id}, ${lap.athlete_id}, ${lap.lap_index},
+      ${JSON.stringify(lap.data)}, ${lap.start_date}, ${lap.elapsed_time},
+      ${lap.moving_time}, ${lap.distance}, NOW()
+    )
+    ON CONFLICT (activity_id, lap_index) DO UPDATE SET
+      id = EXCLUDED.id,
+      data = EXCLUDED.data,
+      start_date = EXCLUDED.start_date,
+      elapsed_time = EXCLUDED.elapsed_time,
+      moving_time = EXCLUDED.moving_time,
+      distance = EXCLUDED.distance,
+      updated_at = NOW()
+  `;
+}
+
+export async function upsertActivityLapsBatch(
+  laps: Array<{
+    id: number;
+    activity_id: number;
+    athlete_id: number;
+    lap_index: number;
+    data: Record<string, unknown>;
+    start_date: string;
+    elapsed_time: number;
+    moving_time: number;
+    distance: number;
+  }>
+): Promise<number> {
+  if (laps.length === 0) return 0;
+
+  const sql = getDb();
+
+  // Build values for batch insert
+  const values = laps
+    .map(
+      (l) =>
+        `(${l.id}, ${l.activity_id}, ${l.athlete_id}, ${l.lap_index}, '${JSON.stringify(l.data).replace(
+          /'/g,
+          "''"
+        )}', '${l.start_date}', ${l.elapsed_time}, ${l.moving_time}, ${l.distance}, NOW(), NOW())`
+    )
+    .join(", ");
+
+  await sql`
+    INSERT INTO activity_laps (
+      id, activity_id, athlete_id, lap_index, data, start_date,
+      elapsed_time, moving_time, distance, created_at, updated_at
+    )
+    VALUES ${sql.unsafe(values)}
+    ON CONFLICT (activity_id, lap_index) DO UPDATE SET
+      id = EXCLUDED.id,
+      data = EXCLUDED.data,
+      start_date = EXCLUDED.start_date,
+      elapsed_time = EXCLUDED.elapsed_time,
+      moving_time = EXCLUDED.moving_time,
+      distance = EXCLUDED.distance,
+      updated_at = NOW()
+  `;
+
+  return laps.length;
+}
+
+export async function getLapsForActivity(
+  activityId: number
+): Promise<DbActivityLap[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM activity_laps
+    WHERE activity_id = ${activityId}
+    ORDER BY lap_index ASC
+  `;
+  return result as DbActivityLap[];
+}
+
+export async function getLapsForActivities(
+  activityIds: number[]
+): Promise<DbActivityLap[]> {
+  if (activityIds.length === 0) return [];
+
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM activity_laps
+    WHERE activity_id = ANY(${activityIds})
+    ORDER BY activity_id ASC, lap_index ASC
+  `;
+  return result as DbActivityLap[];
+}
+
+export async function deleteActivityLaps(activityId: number): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM activity_laps WHERE activity_id = ${activityId}`;
 }

@@ -194,3 +194,62 @@ export async function fetchActivitiesPage(
   }
 }
 
+// Fetch detailed activity with laps from Strava
+export async function fetchActivityWithLaps(
+  activityId: number,
+  accessToken: string
+): Promise<{ activity: Record<string, unknown>; rateLimit: RateLimitInfo } | null> {
+  try {
+    const response = await fetch(`${STRAVA_API_BASE}/activities/${activityId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      console.error(`Strava API: Failed to fetch activity ${activityId}: ${response.status}`);
+      return null;
+    }
+
+    const activity = await response.json();
+    const rateLimit = parseRateLimitHeaders(response);
+    return { activity, rateLimit };
+  } catch (error) {
+    console.error(`Strava API: Error fetching activity ${activityId}:`, error);
+    return null;
+  }
+}
+
+// Extract laps from activity data
+export function extractLaps(
+  activity: Record<string, unknown>,
+  athleteId: number
+): Array<{
+  id: number;
+  activity_id: number;
+  athlete_id: number;
+  lap_index: number;
+  data: Record<string, unknown>;
+  start_date: string;
+  elapsed_time: number;
+  moving_time: number;
+  distance: number;
+}> | null {
+  const laps = activity.laps as Record<string, unknown>[] | undefined;
+  if (!laps || !Array.isArray(laps) || laps.length === 0) {
+    return null;
+  }
+
+  const activityId = activity.id as number;
+
+  return laps.map((lap) => ({
+    id: lap.id as number,
+    activity_id: activityId,
+    athlete_id: athleteId,
+    lap_index: lap.lap_index as number,
+    data: lap,
+    start_date: lap.start_date as string,
+    elapsed_time: lap.elapsed_time as number,
+    moving_time: lap.moving_time as number,
+    distance: lap.distance as number,
+  }));
+}
+

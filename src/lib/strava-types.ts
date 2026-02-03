@@ -111,6 +111,37 @@ export interface Activity {
   total_photo_count: number;
   has_kudoed: boolean;
   suffer_score?: number;
+  laps?: Lap[];
+}
+
+export interface Lap {
+  id: number;
+  resource_state: number;
+  name: string;
+  activity: {
+    id: number;
+  };
+  athlete: {
+    id: number;
+  };
+  elapsed_time: number;
+  moving_time: number;
+  start_date: string;
+  start_date_local: string;
+  distance: number;
+  start_index: number;
+  end_index: number;
+  total_elevation_gain: number;
+  average_speed: number;
+  max_speed: number;
+  average_cadence?: number;
+  device_watts?: boolean;
+  average_watts?: number;
+  lap_index: number;
+  split: number;
+  average_heartrate?: number;
+  max_heartrate?: number;
+  pace_zone?: number;
 }
 
 export type ActivityType =
