@@ -124,6 +124,9 @@ function generateWeeklyReport(
     markdown += `## Long Ride\n\n`;
     markdown += `**Activity:** ${activity.name}\n\n`;
     markdown += `- **Duration:** ${formatActivityDuration(activity.moving_time)}\n`;
+    if (activity.perceived_exertion) {
+      markdown += `**RPE:** ${activity.perceived_exertion}\n\n`;
+    }
     if (activity.average_heartrate) {
       markdown += `- **Average HR:** ${Math.round(activity.average_heartrate)} bpm\n`;
     }
@@ -143,6 +146,9 @@ function generateWeeklyReport(
     summary.intervalSessions.forEach(({ workout, activity, intervals }) => {
       markdown += `### ${workout.session_name}\n\n`;
       markdown += `**Duration:** ${formatActivityDuration(activity.moving_time)}\n\n`;
+      if (activity.perceived_exertion) {
+        markdown += `**RPE:** ${activity.perceived_exertion}\n\n`;
+      }
       markdown += `**Intervals:**\n\n`;
       markdown += `| # | Duration | Avg HR | Avg Power |\n`;
       markdown += `|---|----------|--------|----------|\n`;

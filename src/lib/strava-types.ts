@@ -111,6 +111,7 @@ export interface Activity {
   total_photo_count: number;
   has_kudoed: boolean;
   suffer_score?: number;
+  perceived_exertion?: number; // 0-10 scale, athlete's subjective rating
   laps?: Lap[];
 }
 
