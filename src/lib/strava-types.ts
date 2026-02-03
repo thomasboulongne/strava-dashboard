@@ -311,8 +311,10 @@ export interface IntervalResult {
   durationSec: number; // Actual duration
   targetDurationSec: number;
   avgHR: number;
+  avgPower?: number; // Average power for the interval
   targetZone: number;
   status: "completed" | "too_short" | "too_long" | "wrong_zone" | "missing";
+  lapIndex?: number; // If mapped from a lap, which lap index
 }
 
 export interface IntervalCompliance {
@@ -321,6 +323,7 @@ export interface IntervalCompliance {
   score: number; // 0-100
   targetDurationSec: number;
   targetZone: number;
+  source: "laps" | "hr_detection" | "power_detection"; // Indicates if data comes from laps, HR detection, or power detection
   intervals: IntervalResult[];
 }
 
@@ -331,6 +334,14 @@ export interface ComplianceBreakdown {
   hrDetails: {
     actualAvg: number;
     targetZone: number; // 1-5 zone index
+    targetMin: number;
+    targetMax: number;
+    direction: "on_target" | "too_low" | "too_high";
+  } | null;
+  powerZone: number | null;
+  powerDetails: {
+    actualAvg: number;
+    targetZone: number; // 1-5 zone index (or 0 if using explicit watts)
     targetMin: number;
     targetMax: number;
     direction: "on_target" | "too_low" | "too_high";

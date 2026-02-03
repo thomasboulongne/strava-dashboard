@@ -119,6 +119,7 @@ function DayCell({
   isUnlinking,
 }: DayCellProps) {
   const [showLinkMenu, setShowLinkMenu] = useState(false);
+  const [showComplianceDetails, setShowComplianceDetails] = useState(false);
   const isToday = new Date().toDateString() === date.toDateString();
   const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
 
@@ -184,6 +185,19 @@ function DayCell({
                     · {Math.round(matchedActivity.average_heartrate)} bpm
                   </span>
                 )}
+                {(matchedActivity.weighted_average_watts ||
+                  matchedActivity.average_watts) && (
+                  <span>
+                    {" "}
+                    ·{" "}
+                    {Math.round(
+                      matchedActivity.weighted_average_watts ||
+                        matchedActivity.average_watts ||
+                        0
+                    )}
+                    W
+                  </span>
+                )}
               </div>
               {workout.is_manually_linked && (
                 <div className={styles.manualBadge}>Manually linked</div>
@@ -228,35 +242,37 @@ function DayCell({
 
           {workout.compliance && workout.matched_activity && (
             <div className={styles.complianceSection}>
-              <div className={styles.complianceBar}>
-                <div className={styles.complianceLabel}>
-                  <span>Compliance: {workout.compliance.score}%</span>
-                  <Tooltip
-                    content={
-                      <div className={styles.complianceTooltip}>
-                        <div className={styles.tooltipTitle}>
-                          Compliance Breakdown
-                        </div>
+              {/* Desktop version with tooltip */}
+              <div className={styles.complianceDesktop}>
+                <div className={styles.complianceBar}>
+                  <div className={styles.complianceLabel}>
+                    <span>Compliance: {workout.compliance.score}%</span>
+                    <Tooltip
+                      content={
+                        <div className={styles.complianceTooltip}>
+                  <div className={styles.tooltipTitle}>
+                    Compliance Breakdown
+                  </div>
 
-                        {/* Duration Section */}
-                        <div className={styles.tooltipSection}>
-                          <div className={styles.tooltipSectionHeader}>
-                            <span>Duration</span>
-                            <span
-                              style={{
-                                color:
-                                  workout.compliance.breakdown.duration !== null
-                                    ? getComplianceColor(
-                                        workout.compliance.breakdown.duration
-                                      )
-                                    : "var(--gray-9)",
-                              }}
-                            >
-                              {workout.compliance.breakdown.duration !== null
-                                ? `${workout.compliance.breakdown.duration}%`
-                                : "N/A"}
-                            </span>
-                          </div>
+                  {/* Duration Section */}
+                  <div className={styles.tooltipSection}>
+                    <div className={styles.tooltipSectionHeader}>
+                      <span>Duration</span>
+                      <span
+                        style={{
+                          color:
+                            workout.compliance.breakdown.duration !== null
+                              ? getComplianceColor(
+                                  workout.compliance.breakdown.duration
+                                )
+                              : "var(--gray-9)",
+                        }}
+                      >
+                        {workout.compliance.breakdown.duration !== null
+                          ? `${workout.compliance.breakdown.duration}%`
+                          : "N/A"}
+                      </span>
+                    </div>
                           {workout.duration_target_minutes &&
                           matchedActivity ? (
                             <div className={styles.tooltipDetails}>
@@ -322,7 +338,8 @@ function DayCell({
                           )}
                         </div>
 
-                        {/* HR Zone Section */}
+                        {/* HR Zone Section - hidden when intervals are present */}
+                        {!workout.compliance.breakdown.intervals && (
                         <div className={styles.tooltipSection}>
                           <div className={styles.tooltipSectionHeader}>
                             <span>Heart Rate</span>
@@ -437,6 +454,130 @@ function DayCell({
                             </div>
                           )}
                         </div>
+                        )}
+
+                        {/* Power Zone Section - hidden when intervals are present */}
+                        {!workout.compliance.breakdown.intervals && (
+                        <div className={styles.tooltipSection}>
+                          <div className={styles.tooltipSectionHeader}>
+                            <span>Power</span>
+                            <span
+                              style={{
+                                color:
+                                  workout.compliance.breakdown.powerZone !== null
+                                    ? getComplianceColor(
+                                        workout.compliance.breakdown.powerZone
+                                      )
+                                    : "var(--gray-9)",
+                              }}
+                            >
+                              {workout.compliance.breakdown.powerZone !== null
+                                ? `${workout.compliance.breakdown.powerZone}%`
+                                : "N/A"}
+                            </span>
+                          </div>
+                          {workout.compliance.breakdown.powerDetails ? (
+                            <div className={styles.tooltipDetails}>
+                              <div>
+                                <span className={styles.tooltipLabel}>
+                                  Actual avg:
+                                </span>{" "}
+                                {
+                                  workout.compliance.breakdown.powerDetails
+                                    .actualAvg
+                                }
+                                W
+                              </div>
+                              <div>
+                                <span className={styles.tooltipLabel}>
+                                  Target:
+                                </span>{" "}
+                                {workout.compliance.breakdown.powerDetails
+                                  .targetZone > 0
+                                  ? `Zone ${workout.compliance.breakdown.powerDetails.targetZone} (${workout.compliance.breakdown.powerDetails.targetMin}-${workout.compliance.breakdown.powerDetails.targetMax}W)`
+                                  : `${workout.compliance.breakdown.powerDetails.targetMin}-${workout.compliance.breakdown.powerDetails.targetMax}W`}
+                              </div>
+                              <div
+                                className={styles.tooltipDirection}
+                                style={{
+                                  color:
+                                    workout.compliance.breakdown.powerDetails
+                                      .direction === "on_target"
+                                      ? "var(--green-9)"
+                                      : workout.compliance.breakdown.powerDetails
+                                          .direction === "too_low"
+                                      ? "var(--blue-9)"
+                                      : "var(--red-9)",
+                                }}
+                              >
+                                {workout.compliance.breakdown.powerDetails
+                                  .direction === "on_target" && "✓ On target"}
+                                {workout.compliance.breakdown.powerDetails
+                                  .direction === "too_low" && "↓ Too low"}
+                                {workout.compliance.breakdown.powerDetails
+                                  .direction === "too_high" && "↑ Too high"}
+                                {workout.compliance.breakdown.powerDetails
+                                  .direction !== "on_target" && (
+                                  <span className={styles.tooltipDirectionDiff}>
+                                    {" "}
+                                    (
+                                    {workout.compliance.breakdown.powerDetails
+                                      .direction === "too_low"
+                                      ? `-${
+                                          workout.compliance.breakdown.powerDetails
+                                            .targetMin -
+                                          workout.compliance.breakdown.powerDetails
+                                            .actualAvg
+                                        }`
+                                      : `+${
+                                          workout.compliance.breakdown.powerDetails
+                                            .actualAvg -
+                                          workout.compliance.breakdown.powerDetails
+                                            .targetMax
+                                        }`}
+                                    W)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (matchedActivity?.weighted_average_watts ||
+                              matchedActivity?.average_watts) ? (
+                            <div className={styles.tooltipDetails}>
+                              <div>
+                                <span className={styles.tooltipLabel}>
+                                  Actual avg:
+                                </span>{" "}
+                                {Math.round(
+                                  matchedActivity.weighted_average_watts ||
+                                    matchedActivity.average_watts ||
+                                    0
+                                )}
+                                W
+                              </div>
+                              {workout.intensity_target ? (
+                                <div>
+                                  <span className={styles.tooltipMuted}>
+                                    Could not map "{workout.intensity_target}"
+                                    to power zone
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <span className={styles.tooltipMuted}>
+                                    No intensity target set
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className={styles.tooltipDetails}>
+                              <span className={styles.tooltipMuted}>
+                                No power data recorded
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        )}
 
                         {/* Intervals Section */}
                         {workout.compliance.breakdown.intervals && (
@@ -483,6 +624,15 @@ function DayCell({
                                     .targetZone
                                 }
                               </div>
+                              {workout.compliance.breakdown.intervals.source && (
+                                <div className={styles.tooltipMuted} style={{ fontSize: '0.85em', marginTop: '2px' }}>
+                                  {workout.compliance.breakdown.intervals.source === "laps"
+                                    ? "✓ Detected from activity laps"
+                                    : workout.compliance.breakdown.intervals.source === "power_detection"
+                                    ? "✓ Detected from power data"
+                                    : "✓ Detected from heart rate"}
+                                </div>
+                              )}
                               <div className={styles.intervalList}>
                                 {workout.compliance.breakdown.intervals.intervals.map(
                                   (interval) => (
@@ -516,6 +666,7 @@ function DayCell({
                                           </span>
                                           <span className={styles.intervalHR}>
                                             {interval.avgHR} bpm
+                                            {interval.avgPower && ` · ${interval.avgPower}W`}
                                           </span>
                                           <span
                                             className={styles.intervalStatus}
@@ -548,46 +699,549 @@ function DayCell({
                           </div>
                         )}
 
-                        {/* Scoring explanation */}
-                        <div className={styles.tooltipFooter}>
-                          <div>
-                            <span style={{ color: "var(--green-9)" }}>
-                              ≥80%
-                            </span>{" "}
-                            On target
-                          </div>
-                          <div>
-                            <span style={{ color: "var(--yellow-9)" }}>
-                              60-79%
-                            </span>{" "}
-                            Close
-                          </div>
-                          <div>
-                            <span style={{ color: "var(--red-9)" }}>
-                              &lt;60%
-                            </span>{" "}
-                            Off target
+                          {/* Scoring explanation */}
+                          <div className={styles.tooltipFooter}>
+                            <div>
+                              <span style={{ color: "var(--green-9)" }}>
+                                ≥80%
+                              </span>{" "}
+                              On target
+                            </div>
+                            <div>
+                              <span style={{ color: "var(--yellow-9)" }}>
+                                60-79%
+                              </span>{" "}
+                              Close
+                            </div>
+                            <div>
+                              <span style={{ color: "var(--red-9)" }}>
+                                &lt;60%
+                              </span>{" "}
+                              Off target
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    }
-                  >
+                      }
+                    >
+                      <span className={styles.complianceInfo}>
+                        <FiInfo size={12} />
+                      </span>
+                    </Tooltip>
+                  </div>
+                  <div className={styles.complianceTrack}>
+                    <div
+                      className={styles.complianceFill}
+                      style={{
+                        width: `${workout.compliance.score}%`,
+                        backgroundColor: getComplianceColor(
+                          workout.compliance.score
+                        ),
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile version with accordion */}
+              <div className={styles.complianceMobile}>
+                <div
+                  className={styles.complianceBar}
+                  onClick={() => setShowComplianceDetails(!showComplianceDetails)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className={styles.complianceLabel}>
+                    <span>Compliance: {workout.compliance.score}%</span>
                     <span className={styles.complianceInfo}>
                       <FiInfo size={12} />
                     </span>
-                  </Tooltip>
+                  </div>
+                  <div className={styles.complianceTrack}>
+                    <div
+                      className={styles.complianceFill}
+                      style={{
+                        width: `${workout.compliance.score}%`,
+                        backgroundColor: getComplianceColor(
+                          workout.compliance.score
+                        ),
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className={styles.complianceTrack}>
-                  <div
-                    className={styles.complianceFill}
-                    style={{
-                      width: `${workout.compliance.score}%`,
-                      backgroundColor: getComplianceColor(
-                        workout.compliance.score
-                      ),
-                    }}
-                  />
-                </div>
+
+                {showComplianceDetails && (
+                  <div className={styles.complianceDetails}>
+                    <div className={styles.tooltipTitle}>
+                      Compliance Breakdown
+                    </div>
+
+                    {/* Duration Section */}
+                    <div className={styles.tooltipSection}>
+                      <div className={styles.tooltipSectionHeader}>
+                        <span>Duration</span>
+                        <span
+                          style={{
+                            color:
+                              workout.compliance.breakdown.duration !== null
+                                ? getComplianceColor(
+                                    workout.compliance.breakdown.duration
+                                  )
+                                : "var(--gray-9)",
+                          }}
+                        >
+                          {workout.compliance.breakdown.duration !== null
+                            ? `${workout.compliance.breakdown.duration}%`
+                            : "N/A"}
+                        </span>
+                      </div>
+                      {workout.duration_target_minutes &&
+                      matchedActivity ? (
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Actual:
+                            </span>{" "}
+                            {formatDurationForTooltip(
+                              matchedActivity.moving_time / 60
+                            )}
+                          </div>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Target:
+                            </span>{" "}
+                            {formatDurationForTooltip(
+                              workout.duration_target_minutes
+                            )}
+                          </div>
+                          {workout.compliance.breakdown.durationRatio !==
+                            null && (
+                            <div
+                              className={styles.tooltipDirection}
+                              style={{
+                                color:
+                                  workout.compliance.breakdown
+                                    .durationRatio >= 0.8 &&
+                                  workout.compliance.breakdown
+                                    .durationRatio <= 1.2
+                                    ? "var(--green-9)"
+                                    : workout.compliance.breakdown
+                                        .durationRatio < 0.8
+                                    ? "var(--blue-9)"
+                                    : "var(--red-9)",
+                              }}
+                            >
+                              {workout.compliance.breakdown.durationRatio >=
+                                0.8 &&
+                                workout.compliance.breakdown
+                                  .durationRatio <= 1.2 &&
+                                "✓ On target"}
+                              {workout.compliance.breakdown.durationRatio <
+                                0.8 &&
+                                `↓ Too short (${Math.round(
+                                  workout.compliance.breakdown
+                                    .durationRatio * 100
+                                )}%)`}
+                              {workout.compliance.breakdown.durationRatio >
+                                1.2 &&
+                                `↑ Too long (${Math.round(
+                                  workout.compliance.breakdown
+                                    .durationRatio * 100
+                                )}%)`}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className={styles.tooltipDetails}>
+                          <span className={styles.tooltipMuted}>
+                            No duration target set
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* HR Zone Section - hidden when intervals are present */}
+                    {!workout.compliance.breakdown.intervals && (
+                    <div className={styles.tooltipSection}>
+                      <div className={styles.tooltipSectionHeader}>
+                        <span>Heart Rate</span>
+                        <span
+                          style={{
+                            color:
+                              workout.compliance.breakdown.hrZone !== null
+                                ? getComplianceColor(
+                                    workout.compliance.breakdown.hrZone
+                                  )
+                                : "var(--gray-9)",
+                          }}
+                        >
+                          {workout.compliance.breakdown.hrZone !== null
+                            ? `${workout.compliance.breakdown.hrZone}%`
+                            : "N/A"}
+                        </span>
+                      </div>
+                      {workout.compliance.breakdown.hrDetails ? (
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Actual avg:
+                            </span>{" "}
+                            {
+                              workout.compliance.breakdown.hrDetails
+                                .actualAvg
+                            }{" "}
+                            bpm
+                          </div>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Target:
+                            </span>{" "}
+                            {workout.compliance.breakdown.hrDetails
+                              .targetZone > 0
+                              ? `Zone ${workout.compliance.breakdown.hrDetails.targetZone} (${workout.compliance.breakdown.hrDetails.targetMin}-${workout.compliance.breakdown.hrDetails.targetMax} bpm)`
+                              : `${workout.compliance.breakdown.hrDetails.targetMin}-${workout.compliance.breakdown.hrDetails.targetMax} bpm`}
+                          </div>
+                          <div
+                            className={styles.tooltipDirection}
+                            style={{
+                              color:
+                                workout.compliance.breakdown.hrDetails
+                                  .direction === "on_target"
+                                  ? "var(--green-9)"
+                                  : workout.compliance.breakdown.hrDetails
+                                      .direction === "too_low"
+                                  ? "var(--blue-9)"
+                                  : "var(--red-9)",
+                            }}
+                          >
+                            {workout.compliance.breakdown.hrDetails
+                              .direction === "on_target" && "✓ On target"}
+                            {workout.compliance.breakdown.hrDetails
+                              .direction === "too_low" && "↓ Too low"}
+                            {workout.compliance.breakdown.hrDetails
+                              .direction === "too_high" && "↑ Too high"}
+                            {workout.compliance.breakdown.hrDetails
+                              .direction !== "on_target" && (
+                              <span className={styles.tooltipDirectionDiff}>
+                                {" "}
+                                (
+                                {workout.compliance.breakdown.hrDetails
+                                  .direction === "too_low"
+                                  ? `-${
+                                      workout.compliance.breakdown.hrDetails
+                                        .targetMin -
+                                      workout.compliance.breakdown.hrDetails
+                                        .actualAvg
+                                    }`
+                                  : `+${
+                                      workout.compliance.breakdown.hrDetails
+                                        .actualAvg -
+                                      workout.compliance.breakdown.hrDetails
+                                        .targetMax
+                                    }`}{" "}
+                                bpm)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : matchedActivity?.average_heartrate ? (
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Actual avg:
+                            </span>{" "}
+                            {Math.round(matchedActivity.average_heartrate)}{" "}
+                            bpm
+                          </div>
+                          {workout.intensity_target ? (
+                            <div>
+                              <span className={styles.tooltipMuted}>
+                                Could not map "{workout.intensity_target}"
+                                to HR zone
+                              </span>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className={styles.tooltipMuted}>
+                                No intensity target set
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className={styles.tooltipDetails}>
+                          <span className={styles.tooltipMuted}>
+                            No HR data recorded
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    )}
+
+                    {/* Power Zone Section - hidden when intervals are present */}
+                    {!workout.compliance.breakdown.intervals && (
+                    <div className={styles.tooltipSection}>
+                      <div className={styles.tooltipSectionHeader}>
+                        <span>Power</span>
+                        <span
+                          style={{
+                            color:
+                              workout.compliance.breakdown.powerZone !== null
+                                ? getComplianceColor(
+                                    workout.compliance.breakdown.powerZone
+                                  )
+                                : "var(--gray-9)",
+                          }}
+                        >
+                          {workout.compliance.breakdown.powerZone !== null
+                            ? `${workout.compliance.breakdown.powerZone}%`
+                            : "N/A"}
+                        </span>
+                      </div>
+                      {workout.compliance.breakdown.powerDetails ? (
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Actual avg:
+                            </span>{" "}
+                            {
+                              workout.compliance.breakdown.powerDetails
+                                .actualAvg
+                            }
+                            W
+                          </div>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Target:
+                            </span>{" "}
+                            {workout.compliance.breakdown.powerDetails
+                              .targetZone > 0
+                              ? `Zone ${workout.compliance.breakdown.powerDetails.targetZone} (${workout.compliance.breakdown.powerDetails.targetMin}-${workout.compliance.breakdown.powerDetails.targetMax}W)`
+                              : `${workout.compliance.breakdown.powerDetails.targetMin}-${workout.compliance.breakdown.powerDetails.targetMax}W`}
+                          </div>
+                          <div
+                            className={styles.tooltipDirection}
+                            style={{
+                              color:
+                                workout.compliance.breakdown.powerDetails
+                                  .direction === "on_target"
+                                  ? "var(--green-9)"
+                                  : workout.compliance.breakdown.powerDetails
+                                      .direction === "too_low"
+                                  ? "var(--blue-9)"
+                                  : "var(--red-9)",
+                            }}
+                          >
+                            {workout.compliance.breakdown.powerDetails
+                              .direction === "on_target" && "✓ On target"}
+                            {workout.compliance.breakdown.powerDetails
+                              .direction === "too_low" && "↓ Too low"}
+                            {workout.compliance.breakdown.powerDetails
+                              .direction === "too_high" && "↑ Too high"}
+                            {workout.compliance.breakdown.powerDetails
+                              .direction !== "on_target" && (
+                              <span className={styles.tooltipDirectionDiff}>
+                                {" "}
+                                (
+                                {workout.compliance.breakdown.powerDetails
+                                  .direction === "too_low"
+                                  ? `-${
+                                      workout.compliance.breakdown.powerDetails
+                                        .targetMin -
+                                      workout.compliance.breakdown.powerDetails
+                                        .actualAvg
+                                    }`
+                                  : `+${
+                                      workout.compliance.breakdown.powerDetails
+                                        .actualAvg -
+                                      workout.compliance.breakdown.powerDetails
+                                        .targetMax
+                                    }`}
+                                W)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (matchedActivity?.weighted_average_watts ||
+                          matchedActivity?.average_watts) ? (
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Actual avg:
+                            </span>{" "}
+                            {Math.round(
+                              matchedActivity.weighted_average_watts ||
+                                matchedActivity.average_watts ||
+                                0
+                            )}
+                            W
+                          </div>
+                          {workout.intensity_target ? (
+                            <div>
+                              <span className={styles.tooltipMuted}>
+                                Could not map "{workout.intensity_target}"
+                                to power zone
+                              </span>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className={styles.tooltipMuted}>
+                                No intensity target set
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className={styles.tooltipDetails}>
+                          <span className={styles.tooltipMuted}>
+                            No power data recorded
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    )}
+
+                    {/* Intervals Section */}
+                    {workout.compliance.breakdown.intervals && (
+                      <div className={styles.tooltipSection}>
+                        <div className={styles.tooltipSectionHeader}>
+                          <span>Intervals</span>
+                          <span
+                            style={{
+                              color: getComplianceColor(
+                                workout.compliance.breakdown.intervals.score
+                              ),
+                            }}
+                          >
+                            {
+                              workout.compliance.breakdown.intervals
+                                .completed
+                            }
+                            /
+                            {
+                              workout.compliance.breakdown.intervals
+                                .expected
+                            }{" "}
+                            ({workout.compliance.breakdown.intervals.score}
+                            %)
+                          </span>
+                        </div>
+                        <div className={styles.tooltipDetails}>
+                          <div>
+                            <span className={styles.tooltipLabel}>
+                              Target:
+                            </span>{" "}
+                            {
+                              workout.compliance.breakdown.intervals
+                                .expected
+                            }
+                            x
+                            {Math.round(
+                              workout.compliance.breakdown.intervals
+                                .targetDurationSec / 60
+                            )}
+                            min @ Zone{" "}
+                            {
+                              workout.compliance.breakdown.intervals
+                                .targetZone
+                            }
+                          </div>
+                          {workout.compliance.breakdown.intervals.source && (
+                            <div className={styles.tooltipMuted} style={{ fontSize: '0.85em', marginTop: '2px' }}>
+                              {workout.compliance.breakdown.intervals.source === "laps"
+                                ? "✓ Detected from activity laps"
+                                : workout.compliance.breakdown.intervals.source === "power_detection"
+                                ? "✓ Detected from power data"
+                                : "✓ Detected from heart rate"}
+                            </div>
+                          )}
+                          <div className={styles.intervalList}>
+                            {workout.compliance.breakdown.intervals.intervals.map(
+                              (interval) => (
+                                <div
+                                  key={interval.index}
+                                  className={styles.intervalItem}
+                                >
+                                  <span className={styles.intervalIndex}>
+                                    #{interval.index}
+                                  </span>
+                                  {interval.status === "missing" ? (
+                                    <span
+                                      className={styles.intervalMissing}
+                                    >
+                                      Missing
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <span
+                                        className={styles.intervalDuration}
+                                      >
+                                        {Math.floor(
+                                          interval.durationSec / 60
+                                        )}
+                                        :
+                                        {String(
+                                          Math.round(
+                                            interval.durationSec % 60
+                                          )
+                                        ).padStart(2, "0")}
+                                      </span>
+                                      <span className={styles.intervalHR}>
+                                        {interval.avgHR} bpm
+                                        {interval.avgPower && ` · ${interval.avgPower}W`}
+                                      </span>
+                                      <span
+                                        className={styles.intervalStatus}
+                                        style={{
+                                          color:
+                                            interval.status === "completed"
+                                              ? "var(--green-9)"
+                                              : interval.status ===
+                                                "wrong_zone"
+                                              ? "var(--red-9)"
+                                              : "var(--yellow-9)",
+                                        }}
+                                      >
+                                        {interval.status === "completed" &&
+                                          "✓"}
+                                        {interval.status === "too_short" &&
+                                          "↓"}
+                                        {interval.status === "too_long" &&
+                                          "↑"}
+                                        {interval.status === "wrong_zone" &&
+                                          "Z"}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Scoring explanation */}
+                    <div className={styles.tooltipFooter}>
+                      <div>
+                        <span style={{ color: "var(--green-9)" }}>
+                          ≥80%
+                        </span>{" "}
+                        On target
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--yellow-9)" }}>
+                          60-79%
+                        </span>{" "}
+                        Close
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--red-9)" }}>
+                          &lt;60%
+                        </span>{" "}
+                        Off target
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

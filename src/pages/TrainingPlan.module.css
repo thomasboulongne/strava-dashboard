@@ -308,7 +308,37 @@
   padding-top: 0.5rem;
 }
 
+/* Show desktop tooltip by default, hide mobile accordion */
+.complianceDesktop {
+  display: block;
+}
+
+.complianceMobile {
+  display: none;
+}
+
+/* On mobile/tablet, hide desktop tooltip and show mobile accordion */
+@media (max-width: 900px), (hover: none) {
+  .complianceDesktop {
+    display: none;
+  }
+
+  .complianceMobile {
+    display: block;
+  }
+}
+
 .complianceBar {
+}
+
+/* Mobile-specific interactions */
+.complianceMobile .complianceBar {
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.complianceMobile .complianceBar:active {
+  opacity: 0.8;
 }
 
 .complianceLabel {
@@ -324,11 +354,14 @@
   display: inline-flex;
   align-items: center;
   color: var(--gray-9);
-  cursor: help;
   transition: color 0.15s ease;
 }
 
-.complianceInfo:hover {
+.complianceDesktop .complianceInfo {
+  cursor: help;
+}
+
+.complianceDesktop .complianceBar:hover .complianceInfo {
   color: var(--gray-12);
 }
 
@@ -345,11 +378,33 @@
   transition: width 0.3s ease;
 }
 
-/* Compliance Tooltip */
+/* Compliance Tooltip (desktop hover) */
 .complianceTooltip {
   min-width: 200px;
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+/* Compliance Details (mobile accordion) */
+.complianceDetails {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--gray-a3);
+  border-radius: var(--radius-2);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .tooltipTitle {

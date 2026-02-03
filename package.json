@@ -8,7 +8,8 @@
     "dev:netlify": "netlify dev",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predev:netlify": "rm -rf dist; rm -rf .netlify"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
