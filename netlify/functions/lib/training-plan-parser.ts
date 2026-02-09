@@ -86,6 +86,7 @@ export function parseDay(dayStr: string): { dayOfWeek: string; dayNumber: number
  * The referenceDate is used to determine the month/year
  *
  * Uses UTC methods to avoid server timezone issues
+ * Searches through the entire year to find the occurrence closest to the reference date
  */
 export function resolveDateFromDay(
   dayOfWeek: string,
@@ -93,32 +94,59 @@ export function resolveDateFromDay(
   referenceDate: Date = new Date()
 ): string {
   // Use UTC methods to avoid timezone issues on server
-  const refMonth = referenceDate.getUTCMonth();
   const refYear = referenceDate.getUTCFullYear();
-
-  // Create a date with the specified day number in the reference month (UTC)
-  let targetDate = new Date(Date.UTC(refYear, refMonth, dayNumber));
+  const refTime = referenceDate.getTime();
 
   // Check if the day of week matches what was specified
   const expectedDayIndex = DAY_OFFSET_MAP[dayOfWeek.toLowerCase()];
 
-  if (expectedDayIndex !== undefined) {
+  if (expectedDayIndex === undefined) {
+    // Invalid day of week, fall back to reference month
+    const refMonth = referenceDate.getUTCMonth();
+    return formatDateUTC(new Date(Date.UTC(refYear, refMonth, dayNumber)));
+  }
+
+  // Find all occurrences of this day-of-month in the year that match the day-of-week
+  const matches: Date[] = [];
+
+  // Check all 12 months
+  for (let month = 0; month < 12; month++) {
+    const candidateDate = new Date(Date.UTC(refYear, month, dayNumber));
+
+    // Verify this date is actually in the month we tried to create it in
+    // (handles cases like Feb 31 which would roll over to March)
+    if (candidateDate.getUTCMonth() !== month) {
+      continue;
+    }
+
     // Convert JS day (0=Sun) to our offset (0=Mon), using UTC day
-    const actualDayOffset = targetDate.getUTCDay() === 0 ? 6 : targetDate.getUTCDay() - 1;
+    const actualDayOffset = candidateDate.getUTCDay() === 0 ? 6 : candidateDate.getUTCDay() - 1;
 
-    // If the day of week doesn't match, try next month
-    if (actualDayOffset !== expectedDayIndex) {
-      targetDate = new Date(Date.UTC(refYear, refMonth + 1, dayNumber));
-      const nextMonthDayOffset = targetDate.getUTCDay() === 0 ? 6 : targetDate.getUTCDay() - 1;
-
-      // If still doesn't match, try previous month
-      if (nextMonthDayOffset !== expectedDayIndex) {
-        targetDate = new Date(Date.UTC(refYear, refMonth - 1, dayNumber));
-      }
+    // Check if the day of week matches
+    if (actualDayOffset === expectedDayIndex) {
+      matches.push(candidateDate);
     }
   }
 
-  return formatDateUTC(targetDate);
+  // If no matches found in this year, fall back to previous behavior
+  if (matches.length === 0) {
+    const refMonth = referenceDate.getUTCMonth();
+    return formatDateUTC(new Date(Date.UTC(refYear, refMonth, dayNumber)));
+  }
+
+  // Find the match closest to the reference date
+  let closestDate = matches[0];
+  let closestDistance = Math.abs(matches[0].getTime() - refTime);
+
+  for (let i = 1; i < matches.length; i++) {
+    const distance = Math.abs(matches[i].getTime() - refTime);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestDate = matches[i];
+    }
+  }
+
+  return formatDateUTC(closestDate);
 }
 
 /**
