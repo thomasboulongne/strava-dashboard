@@ -6,6 +6,8 @@ import {
   deleteActivity,
   upsertActivityStreams,
   deleteActivityStreams,
+  upsertActivityLapsBatch,
+  deleteActivityLaps,
 } from "./lib/db.js";
 import { jsonResponse, getCorsHeaders } from "./lib/strava.js";
 import {
@@ -13,6 +15,7 @@ import {
   fetchActivity,
   fetchActivityStreams,
   activityMightHaveStreams,
+  extractLaps,
 } from "./lib/strava-api.js";
 
 // Webhook event types from Strava
@@ -68,6 +71,16 @@ async function handleActivityEvent(event: StravaWebhookEvent): Promise<void> {
       aspect_type === "create" ? "Created" : "Updated"
     } activity ${activityId}`
   );
+
+  // Extract and store laps from the activity data
+  const laps = extractLaps(activity, athleteId);
+  if (laps && laps.length > 0) {
+    if (aspect_type === "update") {
+      await deleteActivityLaps(activityId);
+    }
+    const lapCount = await upsertActivityLapsBatch(laps);
+    console.log(`Webhook: Stored ${lapCount} laps for activity ${activityId}`);
+  }
 
   // Also fetch and store streams if the activity might have HR/power data
   if (activityMightHaveStreams(activity)) {
