@@ -10,6 +10,8 @@ import type {
   ImportPlanResponse,
   LinkActivityResponse,
   DeletePlanResponse,
+  WeeklyReportResponse,
+  SaveWeeklyReportResponse,
 } from "./strava-types";
 import {
   getStoredSession,
@@ -416,6 +418,24 @@ export async function updateTrainingWorkout(
   return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
+  });
+}
+
+// Weekly report endpoints
+export async function getWeeklyReport(
+  weekStart: string,
+): Promise<WeeklyReportResponse> {
+  return fetchApi<WeeklyReportResponse>(`/weekly-reports?week=${weekStart}`);
+}
+
+export async function saveWeeklyReport(
+  weekStart: string,
+  title: string,
+  markdown: string,
+): Promise<SaveWeeklyReportResponse> {
+  return fetchApi<SaveWeeklyReportResponse>("/weekly-reports", {
+    method: "PUT",
+    body: JSON.stringify({ weekStart, title, markdown }),
   });
 }
 

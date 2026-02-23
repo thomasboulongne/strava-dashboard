@@ -398,3 +398,21 @@ export interface DeletePlanResponse {
   success: boolean;
   deleted: number;
 }
+
+export interface WeeklyReport {
+  id: number;
+  athlete_id: number;
+  week_start: string;
+  title: string;
+  markdown: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WeeklyReportResponse {
+  report: WeeklyReport | null;
+}
+
+export interface SaveWeeklyReportResponse {
+  report: WeeklyReport;
+}

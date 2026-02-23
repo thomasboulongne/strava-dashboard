@@ -20,6 +20,9 @@ import {
   FiInfo,
   FiFileText,
   FiEdit2,
+  FiEye,
+  FiSave,
+  FiDownload,
 } from "react-icons/fi";
 import {
   useTrainingPlan,
@@ -28,6 +31,8 @@ import {
   useUnlinkActivity,
   useDeletePlan,
   useUpdateWorkout,
+  useWeeklyReport,
+  useSaveReport,
   getWeekStart,
   getNextWeek,
   getPreviousWeek,
@@ -143,10 +148,13 @@ function generateWeeklyReport(
     markdown += `\n`;
   }
 
-  // Interval sessions
-  if (summary.intervalSessions.length > 0) {
+  // Interval sessions — only include sessions that actually have interval lap data
+  const sessionsWithLaps = summary.intervalSessions.filter(
+    ({ intervals }) => intervals.intervals.some((i) => i.status !== "missing"),
+  );
+  if (sessionsWithLaps.length > 0) {
     markdown += `## Interval Sessions\n\n`;
-    summary.intervalSessions.forEach(({ workout, activity, intervals }) => {
+    sessionsWithLaps.forEach(({ workout, activity, intervals }) => {
       markdown += `### ${workout.session_name}\n\n`;
       markdown += `**Duration:** ${formatActivityDuration(activity.moving_time)}\n\n`;
       if (activity.perceived_exertion) {
@@ -165,6 +173,11 @@ function generateWeeklyReport(
       markdown += `\n`;
     });
   }
+
+  // Track which workouts had interval laps found for the summary table
+  const workoutsWithIntervalLaps = new Set(
+    sessionsWithLaps.map(({ workout }) => workout.id),
+  );
 
   // All workouts summary
   markdown += `## All Workouts\n\n`;
@@ -199,10 +212,16 @@ function generateWeeklyReport(
 
     if (workout) {
       const activity = workout.matched_activity?.data as Activity | undefined;
-      const duration = activity
-        ? formatActivityDuration(activity.moving_time)
-        : "—";
-      markdown += `| ${dateDisplay} | ${workout.session_name} | ${duration} | ${activity?.trainer ? "Indoor" : "Outdoor"} |\n`;
+      const isIntervalWorkout = /\d+\s*[x×]\s*\d+/i.test(workout.intensity_target || "");
+      const hadIntervalLaps = workoutsWithIntervalLaps.has(workout.id);
+      const label = activity && isIntervalWorkout && !hadIntervalLaps
+        ? `${workout.session_name} *(intervals not executed)*`
+        : workout.session_name;
+      if (activity) {
+        markdown += `| ${dateDisplay} | ${label} | ${formatActivityDuration(activity.moving_time)} | ${activity.trainer ? "Indoor" : "Outdoor"} |\n`;
+      } else {
+        markdown += `| ${dateDisplay} | ${workout.session_name} | *Cancelled* | — |\n`;
+      }
     } else if (unmatchedForDay.length > 0) {
       // Show unmatched activities
       unmatchedForDay.forEach((ua) => {
@@ -1651,6 +1670,8 @@ export function TrainingPlan() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [weekName, setWeekName] = useState("");
   const [weekNotes, setWeekNotes] = useState("");
+  const [reportPreview, setReportPreview] = useState<string | null>(null);
+  const [reportFilename, setReportFilename] = useState("");
 
   // Edit workout modal state
   const [editingWorkout, setEditingWorkout] = useState<TrainingWorkoutWithMatch | null>(null);
@@ -1668,12 +1689,19 @@ export function TrainingPlan() {
     error: planError,
   } = useTrainingPlan(currentWeek);
 
+  const { data: reportData } = useWeeklyReport(currentWeek);
+  const existingReport = reportData?.report ?? null;
+
+  const { data: prevReportData } = useWeeklyReport(getPreviousWeek(currentWeek));
+  const previousReport = prevReportData?.report ?? null;
+
   // Mutations
   const importMutation = useImportPlan();
   const linkMutation = useLinkActivity();
   const unlinkMutation = useUnlinkActivity();
   const deleteMutation = useDeletePlan();
   const updateMutation = useUpdateWorkout();
+  const saveReportMutation = useSaveReport();
 
   // Handle import
   const handleImport = async () => {
@@ -1705,7 +1733,7 @@ export function TrainingPlan() {
     }
   };
 
-  // Handle generate report
+  // Handle generate report — produces preview for user to review/edit
   const handleGenerateReport = () => {
     if (!weekName.trim()) {
       alert("Please enter a week name");
@@ -1720,20 +1748,55 @@ export function TrainingPlan() {
       unmatchedActivities,
     );
 
-    // Generate filename: YYYY-MM-DD_Week-Name.md
     const dateStr = new Date().toISOString().split("T")[0];
     const sanitizedWeekName = weekName
       .trim()
       .replace(/[^a-zA-Z0-9-_]/g, "-")
       .replace(/-+/g, "-");
-    const filename = `${dateStr}_${sanitizedWeekName}.md`;
+    setReportFilename(`${dateStr}_${sanitizedWeekName}.md`);
+    setReportPreview(markdown);
 
-    downloadFile(filename, markdown);
+    saveReportMutation.mutate({
+      weekStart: currentWeek,
+      title: weekName.trim(),
+      markdown,
+    });
+  };
 
-    // Reset and close modal
+  const handleSaveReport = () => {
+    if (!reportPreview || !weekName.trim()) return;
+    saveReportMutation.mutate({
+      weekStart: currentWeek,
+      title: weekName.trim(),
+      markdown: reportPreview,
+    });
+  };
+
+  const handleDownloadReport = () => {
+    if (!reportPreview) return;
+    saveReportMutation.mutate({
+      weekStart: currentWeek,
+      title: weekName.trim(),
+      markdown: reportPreview,
+    });
+    downloadFile(reportFilename, reportPreview);
     setWeekName("");
     setWeekNotes("");
+    setReportPreview(null);
+    setReportFilename("");
     setShowReportModal(false);
+  };
+
+  const handleViewSavedReport = () => {
+    if (!existingReport) return;
+    setWeekName(existingReport.title);
+    setReportPreview(existingReport.markdown);
+    const dateStr = new Date().toISOString().split("T")[0];
+    const sanitizedTitle = existingReport.title
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .replace(/-+/g, "-");
+    setReportFilename(`${dateStr}_${sanitizedTitle}.md`);
+    setShowReportModal(true);
   };
 
   // Handle edit workout
@@ -1855,14 +1918,29 @@ export function TrainingPlan() {
                 <FiPlus size={16} />
                 Import Plan
               </Button>
+              {existingReport && (
+                <Button
+                  variant="soft"
+                  color="blue"
+                  onClick={handleViewSavedReport}
+                >
+                  <FiEye size={16} />
+                  View Report
+                </Button>
+              )}
               {(workouts.length > 0 || unmatchedActivities.length > 0) && (
                 <Button
                   variant="soft"
                   color="green"
-                  onClick={() => setShowReportModal(true)}
+                  onClick={() => {
+                    if (!existingReport && previousReport) {
+                      setWeekName(previousReport.title);
+                    }
+                    setShowReportModal(true);
+                  }}
                 >
                   <FiFileText size={16} />
-                  Generate Report
+                  {existingReport ? "Regenerate Report" : "Generate Report"}
                 </Button>
               )}
               {workouts.length > 0 && (
@@ -2000,62 +2078,117 @@ export function TrainingPlan() {
       </Dialog.Root>
 
       {/* Generate Report Modal */}
-      <Dialog.Root open={showReportModal} onOpenChange={setShowReportModal}>
-        <Dialog.Content maxWidth="500px">
-          <Dialog.Title>Generate Weekly Report</Dialog.Title>
+      <Dialog.Root open={showReportModal} onOpenChange={(open) => {
+        setShowReportModal(open);
+        if (!open) {
+          setReportPreview(null);
+          setReportFilename("");
+          setWeekName("");
+          setWeekNotes("");
+        }
+      }}>
+        <Dialog.Content maxWidth={reportPreview ? "700px" : "500px"}>
+          <Dialog.Title>
+            {reportPreview ? "Review Report" : "Generate Weekly Report"}
+          </Dialog.Title>
           <Dialog.Description size="2" mb="4">
-            Create a downloadable markdown report summarizing this week's
-            training.
+            {reportPreview
+              ? "Review and edit the markdown before downloading."
+              : "Create a downloadable markdown report summarizing this week's training."}
           </Dialog.Description>
 
-          <Flex direction="column" gap="4">
-            <label>
-              <Text as="div" size="2" weight="bold" mb="2">
-                Week Name *
-              </Text>
-              <input
-                type="text"
-                placeholder="e.g., Base 1 - Week 3"
-                value={weekName}
-                onChange={(e) => setWeekName(e.target.value)}
+          {reportPreview ? (
+            <Flex direction="column" gap="4">
+              <textarea
+                value={reportPreview}
+                onChange={(e) => setReportPreview(e.target.value)}
+                spellCheck={false}
                 style={{
                   width: "100%",
-                  padding: "0.5rem",
-                  fontSize: "0.875rem",
+                  minHeight: "400px",
+                  padding: "0.75rem",
+                  fontSize: "0.8rem",
+                  fontFamily: "monospace",
+                  lineHeight: 1.5,
                   borderRadius: "var(--radius-2)",
                   border: "1px solid var(--gray-a6)",
                   backgroundColor: "var(--color-background)",
                   color: "var(--gray-12)",
+                  resize: "vertical",
                 }}
               />
-            </label>
-
-            <label>
-              <Text as="div" size="2" weight="bold" mb="2">
-                Notes
-              </Text>
-              <TextArea
-                placeholder="Overall feeling, fatigue, soreness, etc."
-                value={weekNotes}
-                onChange={(e) => setWeekNotes(e.target.value)}
-                style={{ minHeight: "100px" }}
-              />
-            </label>
-
-            <Flex gap="3" justify="end">
-              <Dialog.Close>
-                <Button variant="soft" color="gray">
-                  Cancel
+              <Flex gap="3" justify="end">
+                <Button
+                  variant="soft"
+                  color="gray"
+                  onClick={() => setReportPreview(null)}
+                >
+                  Back
                 </Button>
-              </Dialog.Close>
-              <Button
-                onClick={handleGenerateReport}
-                disabled={!weekName.trim()}
-              >
-                Generate & Download
-              </Button>
+                <Button
+                  variant="soft"
+                  onClick={handleSaveReport}
+                  disabled={saveReportMutation.isPending}
+                >
+                  <FiSave size={14} />
+                  {saveReportMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button onClick={handleDownloadReport}>
+                  <FiDownload size={14} />
+                  Download
+                </Button>
+              </Flex>
             </Flex>
-          </Flex>
+          ) : (
+            <Flex direction="column" gap="4">
+              <label>
+                <Text as="div" size="2" weight="bold" mb="2">
+                  Week Name *
+                </Text>
+                <input
+                  type="text"
+                  placeholder="e.g., Base 1 - Week 3"
+                  value={weekName}
+                  onChange={(e) => setWeekName(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "0.5rem",
+                    fontSize: "0.875rem",
+                    borderRadius: "var(--radius-2)",
+                    border: "1px solid var(--gray-a6)",
+                    backgroundColor: "var(--color-background)",
+                    color: "var(--gray-12)",
+                  }}
+                />
+              </label>
+
+              <label>
+                <Text as="div" size="2" weight="bold" mb="2">
+                  Notes
+                </Text>
+                <TextArea
+                  placeholder="Overall feeling, fatigue, soreness, etc."
+                  value={weekNotes}
+                  onChange={(e) => setWeekNotes(e.target.value)}
+                  style={{ minHeight: "100px" }}
+                />
+              </label>
+
+              <Flex gap="3" justify="end">
+                <Dialog.Close>
+                  <Button variant="soft" color="gray">
+                    Cancel
+                  </Button>
+                </Dialog.Close>
+                <Button
+                  onClick={handleGenerateReport}
+                  disabled={!weekName.trim()}
+                >
+                  Generate
+                </Button>
+              </Flex>
+            </Flex>
+          )}
         </Dialog.Content>
       </Dialog.Root>
 

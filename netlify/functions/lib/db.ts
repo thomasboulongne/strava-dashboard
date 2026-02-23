@@ -132,6 +132,17 @@ export interface DbActivityLap {
   updated_at: Date;
 }
 
+// Weekly report saved by the athlete
+export interface DbWeeklyReport {
+  id: number;
+  athlete_id: number;
+  week_start: Date;
+  title: string;
+  markdown: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Schema initialization - run once to set up tables
 export async function initializeSchema() {
   const sql = getDb();
@@ -282,6 +293,24 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_activity_laps_athlete_id ON activity_laps(athlete_id)
+  `;
+
+  // Weekly reports table - stores generated markdown reports per week
+  await sql`
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      id SERIAL PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      week_start DATE NOT NULL,
+      title TEXT NOT NULL,
+      markdown TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(athlete_id, week_start)
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_weekly_reports_athlete_week ON weekly_reports(athlete_id, week_start)
   `;
 
   return { success: true };
@@ -1216,4 +1245,38 @@ export async function markActivitiesLapsSynced(
     UPDATE activities SET laps_synced = TRUE, updated_at = NOW()
     WHERE id = ANY(${activityIds})
   `;
+}
+
+// Weekly report operations
+
+export async function getWeeklyReport(
+  athleteId: number,
+  weekStart: string,
+): Promise<DbWeeklyReport | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM weekly_reports
+    WHERE athlete_id = ${athleteId} AND week_start = ${weekStart}
+    LIMIT 1
+  `;
+  return (result[0] as DbWeeklyReport) ?? null;
+}
+
+export async function upsertWeeklyReport(
+  athleteId: number,
+  weekStart: string,
+  title: string,
+  markdown: string,
+): Promise<DbWeeklyReport> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO weekly_reports (athlete_id, week_start, title, markdown)
+    VALUES (${athleteId}, ${weekStart}, ${title}, ${markdown})
+    ON CONFLICT (athlete_id, week_start) DO UPDATE SET
+      title = EXCLUDED.title,
+      markdown = EXCLUDED.markdown,
+      updated_at = NOW()
+    RETURNING *
+  `;
+  return result[0] as DbWeeklyReport;
 }

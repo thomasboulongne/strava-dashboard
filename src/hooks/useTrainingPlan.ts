@@ -6,8 +6,10 @@ import {
   unlinkActivityFromWorkout,
   deleteTrainingPlan,
   updateTrainingWorkout,
+  getWeeklyReport,
+  saveWeeklyReport,
 } from "../lib/api";
-import type { TrainingPlanResponse } from "../lib/strava-types";
+import type { TrainingPlanResponse, WeeklyReportResponse } from "../lib/strava-types";
 
 // Cache time: 30 seconds
 const STALE_TIME = 1000 * 30;
@@ -218,6 +220,42 @@ export function useUpdateWorkout() {
       }
       // Also invalidate all as fallback
       queryClient.invalidateQueries({ queryKey: ["trainingPlan"] });
+    },
+  });
+}
+
+/**
+ * Hook to fetch a weekly report
+ */
+export function useWeeklyReport(weekStart: string) {
+  return useQuery<WeeklyReportResponse>({
+    queryKey: ["weeklyReport", weekStart],
+    queryFn: () => getWeeklyReport(weekStart),
+    staleTime: STALE_TIME,
+    enabled: !!weekStart,
+  });
+}
+
+/**
+ * Hook to save (upsert) a weekly report
+ */
+export function useSaveReport() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      weekStart,
+      title,
+      markdown,
+    }: {
+      weekStart: string;
+      title: string;
+      markdown: string;
+    }) => saveWeeklyReport(weekStart, title, markdown),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["weeklyReport", variables.weekStart],
+      });
     },
   });
 }
