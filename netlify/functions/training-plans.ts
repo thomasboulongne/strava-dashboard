@@ -907,13 +907,19 @@ function isRecoveryLap(
   const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
   // HEURISTIC 1: Match expected recovery duration (if provided)
-  // Allow ±30% tolerance since recovery can vary
+  // Only usable when recovery and interval durations are sufficiently different,
+  // otherwise duration alone can't distinguish work from recovery laps.
   if (expectedRecoveryDurationSec && expectedRecoveryDurationSec > 0) {
-    const recoveryMin = expectedRecoveryDurationSec * 0.7;
-    const recoveryMax = expectedRecoveryDurationSec * 1.3;
-    if (durationSec >= recoveryMin && durationSec <= recoveryMax) {
-      console.log(`[isRecoveryLap] duration=${durationSec}sec matches expected recovery=${expectedRecoveryDurationSec}sec => TRUE`);
-      return true;
+    const durationRatio = Math.abs(expectedRecoveryDurationSec - expectedIntervalDurationSec) / expectedIntervalDurationSec;
+    if (durationRatio >= 0.5) {
+      const recoveryMin = expectedRecoveryDurationSec * 0.7;
+      const recoveryMax = expectedRecoveryDurationSec * 1.3;
+      if (durationSec >= recoveryMin && durationSec <= recoveryMax) {
+        console.log(`[isRecoveryLap] duration=${durationSec}sec matches expected recovery=${expectedRecoveryDurationSec}sec => TRUE`);
+        return true;
+      }
+    } else {
+      console.log(`[isRecoveryLap] recovery (${expectedRecoveryDurationSec}sec) ≈ interval (${expectedIntervalDurationSec}sec), skipping duration heuristic`);
     }
   }
 
