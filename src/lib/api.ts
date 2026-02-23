@@ -14,6 +14,7 @@ import type {
 import {
   getStoredSession,
   updateStoredSession,
+  clearStoredSession,
 } from "../hooks/useSessionCapture";
 
 // Use VITE_API_URL env var if set, otherwise default to relative /api path
@@ -45,6 +46,19 @@ class ApiError extends Error {
 // Track if we're currently refreshing to avoid multiple simultaneous refreshes
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+
+let isLoggingOut = false;
+
+function forceLogout() {
+  if (isLoggingOut) return;
+  isLoggingOut = true;
+  clearStoredSession();
+  // Access Zustand store outside React — avoids circular imports via dynamic import
+  import("../stores/authStore").then(({ useAuthStore }) => {
+    useAuthStore.getState().logout();
+    isLoggingOut = false;
+  });
+}
 
 async function tryRefreshToken(): Promise<boolean> {
   // If already refreshing, wait for that to complete
@@ -112,9 +126,17 @@ async function fetchApi<T>(
   if (response.status === 401 && !isRetry) {
     const refreshed = await tryRefreshToken();
     if (refreshed) {
-      // Retry the original request
       return fetchApi<T>(endpoint, options, true);
     }
+    // Refresh failed — force logout so the user is prompted to log in again
+    forceLogout();
+    throw new ApiError("Session expired", 401);
+  }
+
+  // Retry itself returned 401 — token is truly invalid
+  if (response.status === 401 && isRetry) {
+    forceLogout();
+    throw new ApiError("Session expired", 401);
   }
 
   if (!response.ok) {
