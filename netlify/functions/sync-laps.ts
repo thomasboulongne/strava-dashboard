@@ -8,10 +8,9 @@ import {
   parseTokensFromCookies,
 } from "./lib/strava.js";
 import {
-  getActivitiesForAthlete,
   upsertActivityLapsBatch,
-  getLapsForActivity,
-  getActivityCount,
+  markActivityLapsSynced,
+  getLapsSyncProgress,
 } from "./lib/db.js";
 import {
   getValidAccessToken,
@@ -24,40 +23,6 @@ import {
 // How many activities to process per request (each needs an API call)
 const ACTIVITIES_PER_REQUEST = 10;
 
-interface LapsSyncProgress {
-  total: number;
-  withLaps: number;
-  pending: number;
-}
-
-async function getLapsSyncProgress(athleteId: number): Promise<LapsSyncProgress> {
-  const { getDb } = await import("./lib/db.js");
-  const sql = getDb();
-
-  // Count total activities
-  const totalResult = await sql`
-    SELECT COUNT(*) as count
-    FROM activities
-    WHERE athlete_id = ${athleteId}
-  `;
-
-  // Count activities with laps
-  const withLapsResult = await sql`
-    SELECT COUNT(DISTINCT activity_id) as count
-    FROM activity_laps
-    WHERE athlete_id = ${athleteId}
-  `;
-
-  const total = parseInt(totalResult[0].count as string, 10);
-  const withLaps = parseInt(withLapsResult[0].count as string, 10);
-
-  return {
-    total,
-    withLaps,
-    pending: total - withLaps,
-  };
-}
-
 async function getActivitiesWithoutLaps(
   athleteId: number,
   limit: number = 50
@@ -65,14 +30,12 @@ async function getActivitiesWithoutLaps(
   const { getDb } = await import("./lib/db.js");
   const sql = getDb();
 
-  // Get activity IDs that don't have laps yet
   const result = await sql`
-    SELECT a.id
-    FROM activities a
-    LEFT JOIN activity_laps l ON a.id = l.activity_id
-    WHERE a.athlete_id = ${athleteId}
-      AND l.activity_id IS NULL
-    ORDER BY a.start_date DESC
+    SELECT id
+    FROM activities
+    WHERE athlete_id = ${athleteId}
+      AND laps_synced = FALSE
+    ORDER BY start_date DESC
     LIMIT ${limit}
   `;
 
@@ -161,7 +124,6 @@ export default async function handler(request: Request, _context: Context) {
 
       if (!result) {
         console.error(`Sync-laps: Failed to fetch activity ${activityId}`);
-        // Mark as processed by inserting empty lap record (to avoid re-checking)
         skipped++;
         continue;
       }
@@ -174,9 +136,10 @@ export default async function handler(request: Request, _context: Context) {
         await upsertActivityLapsBatch(laps);
         synced++;
       } else {
-        // Activity has no laps, mark as processed
         skipped++;
       }
+
+      await markActivityLapsSynced(activityId);
     }
 
     const progress = await getLapsSyncProgress(athleteId);

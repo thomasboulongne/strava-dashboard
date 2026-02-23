@@ -158,9 +158,15 @@ export async function initializeSchema() {
       athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       data JSONB NOT NULL,
       start_date TIMESTAMPTZ NOT NULL,
+      laps_synced BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Migration: add laps_synced column for existing databases
+  await sql`
+    ALTER TABLE activities ADD COLUMN IF NOT EXISTS laps_synced BOOLEAN NOT NULL DEFAULT FALSE
   `;
 
   await sql`
@@ -731,27 +737,21 @@ export async function getLapsSyncProgress(athleteId: number): Promise<{
 }> {
   const sql = getDb();
 
-  // Count total activities
-  const totalResult = await sql`
-    SELECT COUNT(*) as count
+  const result = await sql`
+    SELECT
+      COUNT(*) as total,
+      COUNT(*) FILTER (WHERE laps_synced = TRUE) as synced
     FROM activities
     WHERE athlete_id = ${athleteId}
   `;
 
-  // Count activities with laps
-  const withLapsResult = await sql`
-    SELECT COUNT(DISTINCT activity_id) as count
-    FROM activity_laps
-    WHERE athlete_id = ${athleteId}
-  `;
-
-  const total = parseInt(totalResult[0].count as string, 10);
-  const withLaps = parseInt(withLapsResult[0].count as string, 10);
+  const total = parseInt(result[0].total as string, 10);
+  const synced = parseInt(result[0].synced as string, 10);
 
   return {
     total,
-    withLaps,
-    pending: total - withLaps,
+    withLaps: synced,
+    pending: total - synced,
   };
 }
 
@@ -1195,4 +1195,25 @@ export async function getLapsForActivities(
 export async function deleteActivityLaps(activityId: number): Promise<void> {
   const sql = getDb();
   await sql`DELETE FROM activity_laps WHERE activity_id = ${activityId}`;
+}
+
+export async function markActivityLapsSynced(
+  activityId: number
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE activities SET laps_synced = TRUE, updated_at = NOW()
+    WHERE id = ${activityId}
+  `;
+}
+
+export async function markActivitiesLapsSynced(
+  activityIds: number[]
+): Promise<void> {
+  if (activityIds.length === 0) return;
+  const sql = getDb();
+  await sql`
+    UPDATE activities SET laps_synced = TRUE, updated_at = NOW()
+    WHERE id = ANY(${activityIds})
+  `;
 }

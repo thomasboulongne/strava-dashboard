@@ -8,6 +8,7 @@ import {
   deleteActivityStreams,
   upsertActivityLapsBatch,
   deleteActivityLaps,
+  markActivityLapsSynced,
 } from "./lib/db.js";
 import { jsonResponse, getCorsHeaders } from "./lib/strava.js";
 import {
@@ -81,6 +82,7 @@ async function handleActivityEvent(event: StravaWebhookEvent): Promise<void> {
     const lapCount = await upsertActivityLapsBatch(laps);
     console.log(`Webhook: Stored ${lapCount} laps for activity ${activityId}`);
   }
+  await markActivityLapsSynced(activityId);
 
   // Also fetch and store streams if the activity might have HR/power data
   if (activityMightHaveStreams(activity)) {
