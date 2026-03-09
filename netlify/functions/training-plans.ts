@@ -870,6 +870,7 @@ interface IntervalComplianceResult {
     durationSec: number;
     targetDurationSec: number;
     avgHR: number;
+    maxHR?: number;
     avgPower?: number; // Average power for the interval (if available)
     targetZone: number;
     status: "completed" | "too_short" | "too_long" | "wrong_zone" | "missing";
@@ -1207,6 +1208,7 @@ async function mapLapsToIntervals(
           elapsed_time?: number;
           moving_time?: number;
           average_heartrate?: number;
+          max_heartrate?: number;
           average_watts?: number;
           device_watts?: boolean;
         };
@@ -1214,6 +1216,7 @@ async function mapLapsToIntervals(
         const durationSec =
           lapData.moving_time || lapData.elapsed_time || lap.moving_time;
         const avgHR = lapData.average_heartrate || 0;
+        const maxHR = lapData.max_heartrate || undefined;
         // Only use power data if it's from an actual power meter (device_watts: true)
         const avgPower = lapData.device_watts ? lapData.average_watts : undefined;
 
@@ -1269,6 +1272,7 @@ async function mapLapsToIntervals(
           durationSec: Math.round(durationSec),
           targetDurationSec: expectedDurationSec,
           avgHR: Math.round(avgHR),
+          maxHR: maxHR ? Math.round(maxHR) : undefined,
           avgPower: avgPower ? Math.round(avgPower) : undefined,
           targetZone,
           status,
@@ -1735,6 +1739,7 @@ async function calculateCompliance(
                   durationSec: detected.durationSec,
                   targetDurationSec: intervalStructure.durationSec,
                   avgHR: detected.avgHR,
+                  maxHR: detected.maxHR || undefined,
                   avgPower: detected.avgPower,
                   targetZone,
                   status,

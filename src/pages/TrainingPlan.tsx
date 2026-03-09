@@ -161,14 +161,25 @@ function generateWeeklyReport(
         markdown += `**RPE:** ${activity.perceived_exertion}\n\n`;
       }
       markdown += `**Intervals:**\n\n`;
-      markdown += `| # | Duration | Avg HR | Avg Power |\n`;
-      markdown += `|---|----------|--------|----------|\n`;
+      const showMaxHR = intervals.targetZone >= 4;
+      if (showMaxHR) {
+        markdown += `| # | Duration | Avg HR | Max HR | Avg Power |\n`;
+        markdown += `|---|----------|--------|--------|----------|\n`;
+      } else {
+        markdown += `| # | Duration | Avg HR | Avg Power |\n`;
+        markdown += `|---|----------|--------|----------|\n`;
+      }
       intervals.intervals
         .filter((interval) => interval.status !== "missing")
         .forEach((interval) => {
           const duration = `${Math.floor(interval.durationSec / 60)}:${String(Math.round(interval.durationSec % 60)).padStart(2, "0")}`;
           const power = interval.avgPower ? `${interval.avgPower}W` : "—";
-          markdown += `| ${interval.index} | ${duration} | ${interval.avgHR} bpm | ${power} |\n`;
+          const maxHR = interval.maxHR ? `${interval.maxHR} bpm` : "—";
+          if (showMaxHR) {
+            markdown += `| ${interval.index} | ${duration} | ${interval.avgHR} bpm | ${maxHR} | ${power} |\n`;
+          } else {
+            markdown += `| ${interval.index} | ${duration} | ${interval.avgHR} bpm | ${power} |\n`;
+          }
         });
       markdown += `\n`;
     });

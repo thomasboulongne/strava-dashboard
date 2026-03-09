@@ -359,7 +359,7 @@ export async function updateUserTokens(
   id: number,
   accessToken: string,
   refreshToken: string,
-  expiresAt: number
+  expiresAt: number,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -377,14 +377,14 @@ export async function upsertActivity(
   activityId: number,
   athleteId: number,
   data: Record<string, unknown>,
-  startDate: string
+  startDate: string,
 ): Promise<void> {
   const sql = getDb();
   await sql`
     INSERT INTO activities (id, athlete_id, data, start_date, updated_at)
     VALUES (${activityId}, ${athleteId}, ${JSON.stringify(
-    data
-  )}, ${startDate}, NOW())
+      data,
+    )}, ${startDate}, NOW())
     ON CONFLICT (id) DO UPDATE SET
       data = EXCLUDED.data,
       start_date = EXCLUDED.start_date,
@@ -398,7 +398,7 @@ export async function upsertActivitiesBatch(
     athlete_id: number;
     data: Record<string, unknown>;
     start_date: string;
-  }>
+  }>,
 ): Promise<number> {
   if (activities.length === 0) return 0;
 
@@ -410,8 +410,8 @@ export async function upsertActivitiesBatch(
       (a) =>
         `(${a.id}, ${a.athlete_id}, '${JSON.stringify(a.data).replace(
           /'/g,
-          "''"
-        )}', '${a.start_date}', NOW(), NOW())`
+          "''",
+        )}', '${a.start_date}', NOW(), NOW())`,
     )
     .join(", ");
 
@@ -439,7 +439,7 @@ export async function getActivitiesForAthlete(
     offset?: number;
     before?: string;
     after?: string;
-  } = {}
+  } = {},
 ): Promise<DbActivity[]> {
   const sql = getDb();
   const { limit = 200, offset = 0, before, after } = options;
@@ -490,7 +490,7 @@ export async function getActivityCount(athleteId: number): Promise<number> {
 
 // Get the latest activity date for an athlete (for sync comparison)
 export async function getLatestActivityDate(
-  athleteId: number
+  athleteId: number,
 ): Promise<string | null> {
   const sql = getDb();
   const result = await sql`
@@ -512,7 +512,7 @@ export async function hasActivity(activityId: number): Promise<boolean> {
 }
 
 export async function getActivityById(
-  activityId: number
+  activityId: number,
 ): Promise<DbActivity | null> {
   const sql = getDb();
   const result = await sql`SELECT * FROM activities WHERE id = ${activityId}`;
@@ -551,7 +551,7 @@ export async function getSyncJob(athleteId: number): Promise<DbSyncJob | null> {
 }
 
 export async function getActiveSyncJob(
-  athleteId: number
+  athleteId: number,
 ): Promise<DbSyncJob | null> {
   const sql = getDb();
   const result = await sql`
@@ -571,7 +571,7 @@ export async function updateSyncJob(
     total_activities_synced: number;
     last_error: string | null;
     completed_at: Date;
-  }>
+  }>,
 ): Promise<void> {
   const sql = getDb();
 
@@ -631,7 +631,7 @@ export async function updateSyncJob(
 
 export async function markSyncJobComplete(
   jobId: number,
-  totalSynced: number
+  totalSynced: number,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -646,7 +646,7 @@ export async function markSyncJobComplete(
 
 export async function markSyncJobFailed(
   jobId: number,
-  error: string
+  error: string,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -661,7 +661,7 @@ export async function markSyncJobFailed(
 export async function markSyncJobPaused(
   jobId: number,
   currentPage: number,
-  totalSynced: number
+  totalSynced: number,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -679,14 +679,14 @@ export async function upsertActivityStreams(
   activityId: number,
   athleteId: number,
   streams: Record<string, unknown>,
-  streamTypes: string[]
+  streamTypes: string[],
 ): Promise<void> {
   const sql = getDb();
   await sql`
     INSERT INTO activity_streams (activity_id, athlete_id, streams, stream_types, updated_at)
     VALUES (${activityId}, ${athleteId}, ${JSON.stringify(
-    streams
-  )}, ${streamTypes}, NOW())
+      streams,
+    )}, ${streamTypes}, NOW())
     ON CONFLICT (activity_id) DO UPDATE SET
       streams = EXCLUDED.streams,
       stream_types = EXCLUDED.stream_types,
@@ -695,7 +695,7 @@ export async function upsertActivityStreams(
 }
 
 export async function getActivityStreams(
-  activityId: number
+  activityId: number,
 ): Promise<DbActivityStreams | null> {
   const sql = getDb();
   const result =
@@ -710,7 +710,7 @@ export async function deleteActivityStreams(activityId: number): Promise<void> {
 
 export async function getActivitiesWithoutStreams(
   athleteId: number,
-  limit: number = 50
+  limit: number = 50,
 ): Promise<number[]> {
   const sql = getDb();
   // Get activity IDs that don't have streams yet
@@ -787,7 +787,7 @@ export async function getLapsSyncProgress(athleteId: number): Promise<{
 // Batch fetch activity streams for multiple activities
 export async function getActivityStreamsBatch(
   athleteId: number,
-  activityIds: number[]
+  activityIds: number[],
 ): Promise<DbActivityStreams[]> {
   if (activityIds.length === 0) return [];
 
@@ -803,7 +803,7 @@ export async function getActivityStreamsBatch(
 // Get all activity streams for an athlete (with optional limit)
 export async function getAllActivityStreamsForAthlete(
   athleteId: number,
-  limit?: number
+  limit?: number,
 ): Promise<DbActivityStreams[]> {
   const sql = getDb();
 
@@ -830,7 +830,7 @@ export async function getAllActivityStreamsForAthlete(
 // Athlete zones operations
 export async function upsertAthleteZones(
   athleteId: number,
-  zones: StravaZonesResponse
+  zones: StravaZonesResponse,
 ): Promise<DbAthleteZones> {
   const sql = getDb();
 
@@ -859,7 +859,7 @@ export async function upsertAthleteZones(
 }
 
 export async function getAthleteZones(
-  athleteId: number
+  athleteId: number,
 ): Promise<DbAthleteZones | null> {
   const sql = getDb();
   const result = await sql`
@@ -919,7 +919,7 @@ export async function updateTrainingWorkout(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
-  }
+  },
 ): Promise<DbTrainingWorkout> {
   const sql = getDb();
 
@@ -945,7 +945,7 @@ export async function upsertTrainingWorkoutsBatch(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
-  }>
+  }>,
 ): Promise<number> {
   if (workouts.length === 0) return 0;
 
@@ -957,14 +957,14 @@ export async function upsertTrainingWorkoutsBatch(
       (w) =>
         `(${w.athlete_id}, '${w.workout_date}', '${w.session_name.replace(
           /'/g,
-          "''"
+          "''",
         )}', ${w.duration_target_minutes ?? "NULL"}, ${
           w.intensity_target
             ? `'${w.intensity_target.replace(/'/g, "''")}'`
             : "NULL"
         }, ${
           w.notes ? `'${w.notes.replace(/'/g, "''")}'` : "NULL"
-        }, NOW(), NOW())`
+        }, NOW(), NOW())`,
     )
     .join(", ");
 
@@ -987,7 +987,7 @@ export async function upsertTrainingWorkoutsBatch(
 
 export async function getTrainingWorkoutsForWeek(
   athleteId: number,
-  weekStart: string // YYYY-MM-DD format (Monday of the week)
+  weekStart: string, // YYYY-MM-DD format (Monday of the week)
 ): Promise<DbTrainingWorkout[]> {
   const sql = getDb();
 
@@ -996,7 +996,7 @@ export async function getTrainingWorkoutsForWeek(
   const [year, month, day] = weekStart.split("-").map(Number);
   const endDate = new Date(year, month - 1, day + 7);
   const weekEnd = `${endDate.getFullYear()}-${String(
-    endDate.getMonth() + 1
+    endDate.getMonth() + 1,
   ).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
 
   const result = await sql`
@@ -1011,7 +1011,7 @@ export async function getTrainingWorkoutsForWeek(
 }
 
 export async function getTrainingWorkoutById(
-  workoutId: number
+  workoutId: number,
 ): Promise<DbTrainingWorkout | null> {
   const sql = getDb();
   const result = await sql`
@@ -1023,7 +1023,7 @@ export async function getTrainingWorkoutById(
 export async function linkActivityToWorkout(
   workoutId: number,
   activityId: number,
-  isManual: boolean = false
+  isManual: boolean = false,
 ): Promise<DbTrainingWorkout | null> {
   const sql = getDb();
   const result = await sql`
@@ -1038,7 +1038,7 @@ export async function linkActivityToWorkout(
 }
 
 export async function unlinkActivityFromWorkout(
-  workoutId: number
+  workoutId: number,
 ): Promise<DbTrainingWorkout | null> {
   const sql = getDb();
   const result = await sql`
@@ -1054,7 +1054,7 @@ export async function unlinkActivityFromWorkout(
 
 export async function deleteTrainingWorkoutsForWeek(
   athleteId: number,
-  weekStart: string
+  weekStart: string,
 ): Promise<number> {
   const sql = getDb();
 
@@ -1062,7 +1062,7 @@ export async function deleteTrainingWorkoutsForWeek(
   const [year, month, day] = weekStart.split("-").map(Number);
   const endDate = new Date(year, month - 1, day + 7);
   const weekEnd = `${endDate.getFullYear()}-${String(
-    endDate.getMonth() + 1
+    endDate.getMonth() + 1,
   ).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
 
   const result = await sql`
@@ -1080,7 +1080,7 @@ export async function deleteTrainingWorkoutsForWeek(
 // Uses the start_date_local from activity data for accurate local date matching
 export async function getActivitiesForDate(
   athleteId: number,
-  date: string // YYYY-MM-DD format
+  date: string, // YYYY-MM-DD format
 ): Promise<DbActivity[]> {
   const sql = getDb();
 
@@ -1099,7 +1099,7 @@ export async function getActivitiesForDate(
 export async function getActivitiesForDateRange(
   athleteId: number,
   startDate: string,
-  endDate: string
+  endDate: string,
 ): Promise<DbActivity[]> {
   const sql = getDb();
 
@@ -1159,7 +1159,7 @@ export async function upsertActivityLapsBatch(
     elapsed_time: number;
     moving_time: number;
     distance: number;
-  }>
+  }>,
 ): Promise<number> {
   if (laps.length === 0) return 0;
 
@@ -1169,10 +1169,12 @@ export async function upsertActivityLapsBatch(
   const values = laps
     .map(
       (l) =>
-        `(${l.id}, ${l.activity_id}, ${l.athlete_id}, ${l.lap_index}, '${JSON.stringify(l.data).replace(
+        `(${l.id}, ${l.activity_id}, ${l.athlete_id}, ${l.lap_index}, '${JSON.stringify(
+          l.data,
+        ).replace(
           /'/g,
-          "''"
-        )}', '${l.start_date}', ${l.elapsed_time}, ${l.moving_time}, ${l.distance}, NOW(), NOW())`
+          "''",
+        )}', '${l.start_date}', ${l.elapsed_time}, ${l.moving_time}, ${l.distance}, NOW(), NOW())`,
     )
     .join(", ");
 
@@ -1196,7 +1198,7 @@ export async function upsertActivityLapsBatch(
 }
 
 export async function getLapsForActivity(
-  activityId: number
+  activityId: number,
 ): Promise<DbActivityLap[]> {
   const sql = getDb();
   const result = await sql`
@@ -1208,7 +1210,7 @@ export async function getLapsForActivity(
 }
 
 export async function getLapsForActivities(
-  activityIds: number[]
+  activityIds: number[],
 ): Promise<DbActivityLap[]> {
   if (activityIds.length === 0) return [];
 
@@ -1227,7 +1229,7 @@ export async function deleteActivityLaps(activityId: number): Promise<void> {
 }
 
 export async function markActivityLapsSynced(
-  activityId: number
+  activityId: number,
 ): Promise<void> {
   const sql = getDb();
   await sql`
@@ -1237,7 +1239,7 @@ export async function markActivityLapsSynced(
 }
 
 export async function markActivitiesLapsSynced(
-  activityIds: number[]
+  activityIds: number[],
 ): Promise<void> {
   if (activityIds.length === 0) return;
   const sql = getDb();

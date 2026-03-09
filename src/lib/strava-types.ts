@@ -312,6 +312,7 @@ export interface IntervalResult {
   durationSec: number; // Actual duration
   targetDurationSec: number;
   avgHR: number;
+  maxHR?: number;
   avgPower?: number; // Average power for the interval
   targetZone: number;
   status: "completed" | "too_short" | "too_long" | "wrong_zone" | "missing";
