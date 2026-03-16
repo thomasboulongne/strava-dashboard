@@ -226,7 +226,6 @@
 
 /* Link Section */
 .linkSection {
-  position: relative;
 }
 
 .linkBtn {
@@ -257,16 +256,10 @@
 }
 
 .linkMenu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
   margin-top: 0.25rem;
-  background: var(--color-background);
-  border: 1px solid var(--gray-a6);
+  background: var(--gray-a3);
+  border: 1px solid var(--gray-a5);
   border-radius: var(--radius-2);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 100;
   max-height: 200px;
   overflow-y: auto;
 }

@@ -1,0 +1,72 @@
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 32px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: white;
+  background: var(--accent-9);
+  overflow: hidden;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.banner[data-status="hidden"] {
+  opacity: 0;
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+.banner[data-status="fetching"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.banner[data-status="done"] {
+  opacity: 1;
+  transform: translateY(0);
+  background: var(--green-9, #30a46c);
+}
+
+.progressBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  animation: indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+  0% {
+    left: -30%;
+    width: 30%;
+  }
+  50% {
+    left: 30%;
+    width: 40%;
+  }
+  100% {
+    left: 100%;
+    width: 30%;
+  }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

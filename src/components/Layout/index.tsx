@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from "react-router";
 import { useEffect } from "react";
 import { Container, Flex, Heading, Skeleton, Box } from "@radix-ui/themes";
 import { AuthButton } from "../AuthButton";
+import { RefreshBanner } from "../RefreshBanner";
 import { useAuthStore } from "../../stores/authStore";
 import { useAthlete } from "../../hooks/useAthlete";
 import styles from "./Layout.module.css";
@@ -32,6 +33,7 @@ export function Layout({ showLoadingSkeleton = true }: LayoutProps) {
   if (isLoading && showLoadingSkeleton) {
     return (
       <Box className={styles.page}>
+        <RefreshBanner />
         <header className={styles.header}>
           <Container size="4">
             <Flex justify="between" align="center" py="4">
@@ -64,6 +66,7 @@ export function Layout({ showLoadingSkeleton = true }: LayoutProps) {
 
   return (
     <Box className={styles.page}>
+      <RefreshBanner />
       <header className={styles.header}>
         <Container size="4">
           <Flex justify="between" align="center" py="4">
