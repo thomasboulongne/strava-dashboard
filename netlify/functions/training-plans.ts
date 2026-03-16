@@ -1939,7 +1939,7 @@ export default async function handler(request: Request, _context: Context) {
         console.log('Authorization passed!');
 
         // Parse duration (handle multiple formats)
-        let durationMinutes = null;
+        let durationMinutes: number | null = null;
         if (
           duration_target_minutes !== null &&
           duration_target_minutes !== undefined
@@ -1992,7 +1992,7 @@ export default async function handler(request: Request, _context: Context) {
 
         // Verify workout belongs to this athlete
         const workout = await getTrainingWorkoutById(workoutId);
-        if (!workout || workout.athlete_id !== athleteId) {
+        if (!workout || Number(workout.athlete_id) !== Number(athleteId)) {
           return jsonResponse({ error: "Workout not found" }, 404);
         }
 
@@ -2006,9 +2006,9 @@ export default async function handler(request: Request, _context: Context) {
         } else {
           // Link activity
           const body = await req.json();
-          const activityId = body.activityId;
+          const activityId = Number(body.activityId);
 
-          if (!activityId || typeof activityId !== "number") {
+          if (!activityId || isNaN(activityId)) {
             return jsonResponse({ error: "Activity ID required" }, 400);
           }
 
