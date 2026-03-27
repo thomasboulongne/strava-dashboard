@@ -16,6 +16,7 @@ import type {
 import {
   getStoredSession,
   updateStoredSession,
+  setStoredSession,
   clearStoredSession,
 } from "../hooks/useSessionCapture";
 
@@ -86,14 +87,25 @@ async function tryRefreshToken(): Promise<boolean> {
       });
 
       if (response.ok) {
-        // Update localStorage with new tokens if returned
         const data = await response.json();
         if (data.accessToken) {
-          updateStoredSession({
-            accessToken: data.accessToken,
-            expiresAt: data.expiresAt,
-            ...(data.refreshToken && { refreshToken: data.refreshToken }),
-          });
+          const existing = getStoredSession();
+          if (existing) {
+            updateStoredSession({
+              accessToken: data.accessToken,
+              expiresAt: data.expiresAt,
+              ...(data.refreshToken && { refreshToken: data.refreshToken }),
+              ...(data.athleteId && { athleteId: data.athleteId }),
+            });
+          } else {
+            // localStorage was cleared — recreate the session from scratch
+            setStoredSession({
+              athleteId: data.athleteId ?? 0,
+              accessToken: data.accessToken,
+              refreshToken: data.refreshToken ?? session?.refreshToken ?? "",
+              expiresAt: data.expiresAt,
+            });
+          }
         }
         return true;
       }

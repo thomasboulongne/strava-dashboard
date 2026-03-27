@@ -81,6 +81,7 @@ export default async function handler(request: Request, _context: Context) {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt: tokens.expires_at,
+      ...(athleteId && { athleteId }),
     }), {
       status: 200,
       headers,

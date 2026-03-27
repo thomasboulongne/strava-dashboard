@@ -95,6 +95,7 @@ export interface Activity {
   average_watts?: number;
   weighted_average_watts?: number;
   kilojoules?: number;
+  calories?: number;
   device_watts?: boolean;
   has_heartrate: boolean;
   average_heartrate?: number;

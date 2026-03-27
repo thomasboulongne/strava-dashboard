@@ -37,7 +37,8 @@ export type MetricKey =
   | "moving_time"
   | "total_elevation_gain"
   | "average_speed"
-  | "average_heartrate";
+  | "average_heartrate"
+  | "calories";
 
 export interface MetricConfig {
   key: MetricKey;
@@ -83,6 +84,13 @@ export const METRICS: Record<MetricKey, MetricConfig> = {
     unit: "bpm",
     color: "#ef4444", // red
     format: (v) => Math.round(v).toString(),
+  },
+  calories: {
+    key: "calories",
+    label: "Calories",
+    unit: "kcal",
+    color: "#f97316", // orange
+    format: (v) => Math.round(v).toLocaleString(),
   },
 };
 

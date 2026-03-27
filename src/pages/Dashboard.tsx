@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Container,
   Flex,
@@ -34,10 +35,13 @@ import { useAthleteStats } from "../hooks/useAthleteStats";
 import { useActivities } from "../hooks/useActivities";
 import { useAthleteZones } from "../hooks/useAthleteZones";
 import { useActivityStreams } from "../hooks/useActivityStreams";
+import type { ActivityType } from "../lib/strava-types";
 import styles from "./Dashboard.module.css";
 
 // Strava API maximum per_page limit - fetch more for analytics charts
 const STRAVA_PER_PAGE = 200;
+
+const RIDE_TYPES: Set<ActivityType> = new Set(["Ride", "VirtualRide", "EBikeRide"]);
 
 export function Dashboard() {
   const { athlete } = useAuthStore();
@@ -64,6 +68,16 @@ export function Dashboard() {
 
   // Flatten paginated activities
   const activities = activitiesData?.pages.flat() ?? [];
+
+  const hasCyclingActivities = useMemo(() => {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+    return activities.some(
+      (a) =>
+        RIDE_TYPES.has(a.type) &&
+        new Date(a.start_date_local) >= twelveMonthsAgo
+    );
+  }, [activities]);
 
   // Extract zones and streams data
   const zones = zonesData?.zones ?? null;
@@ -173,39 +187,49 @@ export function Dashboard() {
                 hasNextPage={hasNextPage}
                 isFetchingNextPage={isFetchingNextPage}
               />
-              <PowerZoneChart
-                activities={activities}
-                streamsMap={streamsMap}
-                zones={zones}
-                isLoading={zonesLoading || streamsLoading}
-                fetchNextPage={fetchNextPage}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-              />
-              <LongRideProgressionChart
-                activities={activities}
-                fetchNextPage={fetchNextPage}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-              />
-              <DurationDistributionChart
-                activities={activities}
-                fetchNextPage={fetchNextPage}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-              />
-              <PaceSpeedTrendChart
-                activities={activities}
-                fetchNextPage={fetchNextPage}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-              />
-              <ClimbingFocusChart
-                activities={activities}
-                fetchNextPage={fetchNextPage}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-              />
+              {hasCyclingActivities && (
+                <PowerZoneChart
+                  activities={activities}
+                  streamsMap={streamsMap}
+                  zones={zones}
+                  isLoading={zonesLoading || streamsLoading}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              )}
+              {hasCyclingActivities && (
+                <LongRideProgressionChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              )}
+              {hasCyclingActivities && (
+                <DurationDistributionChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              )}
+              {hasCyclingActivities && (
+                <PaceSpeedTrendChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              )}
+              {hasCyclingActivities && (
+                <ClimbingFocusChart
+                  activities={activities}
+                  fetchNextPage={fetchNextPage}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                />
+              )}
               <AcuteChronicLoadChart
                 activities={activities}
                 fetchNextPage={fetchNextPage}

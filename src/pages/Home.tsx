@@ -1,19 +1,22 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Container, Flex, Text, Callout } from "@radix-ui/themes";
+import { Container, Flex, Text, Callout, Spinner } from "@radix-ui/themes";
 import { AuthButton } from "../components/AuthButton";
 import { useAuthStore } from "../stores/authStore";
-import { getStoredSession } from "../hooks/useSessionCapture";
+import { getStoredSession, useAuthRecovery } from "../hooks/useSessionCapture";
 import styles from "./Home.module.css";
 
 export function Home() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { isAuthenticated, isLoading } = useAuthStore();
+  const { recovering } = useAuthRecovery();
 
   const error = searchParams.get("error");
 
   useEffect(() => {
+    if (recovering) return;
+
     if (isAuthenticated && !isLoading) {
       navigate("/dashboard");
       return;
@@ -23,7 +26,26 @@ export function Home() {
     if (session && !isLoading) {
       navigate("/dashboard");
     }
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, recovering, navigate]);
+
+  if (recovering) {
+    return (
+      <Container size="2" className={styles.container}>
+        <Flex
+          direction="column"
+          align="center"
+          justify="center"
+          gap="4"
+          className={styles.content}
+        >
+          <div className={styles.logoContainer}>
+            <img src="/dashyLogo.svg" alt="Dashy" className={styles.logo} />
+          </div>
+          <Spinner size="3" />
+        </Flex>
+      </Container>
+    );
+  }
 
   return (
     <Container size="2" className={styles.container}>

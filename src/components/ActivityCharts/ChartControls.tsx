@@ -18,6 +18,7 @@ import {
   PiCaretLeft,
   PiCaretRight,
   PiBarbell,
+  PiFire,
   PiPersonSimpleSki,
   PiWaves,
   PiSneakerMove,
@@ -148,6 +149,7 @@ const METRIC_OPTIONS: {
   { value: "total_elevation_gain", label: "Elevation", icon: PiTrendUp },
   { value: "average_speed", label: "Speed", icon: PiGauge },
   { value: "average_heartrate", label: "Heart Rate", icon: PiHeartbeat },
+  { value: "calories", label: "Calories", icon: PiFire },
 ];
 
 export function ChartControls({

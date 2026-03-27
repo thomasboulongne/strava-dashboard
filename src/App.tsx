@@ -1,11 +1,17 @@
+import { useEffect } from "react";
 import { RouterProvider } from "react-router";
 import { router } from "./routes";
 import { useSessionCapture } from "./hooks/useSessionCapture";
 
-// Wrapper component to handle PWA session capture
 function SessionHandler({ children }: { children: React.ReactNode }) {
-  // Capture session from URL hash on mount (for PWA OAuth flow)
   useSessionCapture();
+
+  // Ask the browser to keep our storage persistent (prevents iOS from
+  // evicting localStorage/IndexedDB for the installed PWA).
+  useEffect(() => {
+    navigator.storage?.persist?.();
+  }, []);
+
   return <>{children}</>;
 }
 
