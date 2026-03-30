@@ -586,10 +586,11 @@ export interface WeeklyVolumeDataPoint {
   totalTime: number; // hours
   totalDistance: number; // km
   totalElevation: number; // m
+  totalCalories: number; // kcal
   // Per-sport breakdown for stacking
   bySport: Record<
     string,
-    { time: number; distance: number; elevation: number }
+    { time: number; distance: number; elevation: number; calories: number }
   >;
 }
 
@@ -619,6 +620,7 @@ export function bucketByWeekVolume(
       totalTime: 0,
       totalDistance: 0,
       totalElevation: 0,
+      totalCalories: 0,
       bySport: {},
     });
     current.setDate(current.getDate() + 7);
@@ -635,17 +637,20 @@ export function bucketByWeekVolume(
     const hours = activity.moving_time / 3600;
     const km = activity.distance / 1000;
     const elev = activity.total_elevation_gain;
+    const cal = activity.calories ?? 0;
 
     point.totalTime += hours;
     point.totalDistance += km;
     point.totalElevation += elev;
+    point.totalCalories += cal;
 
     if (!point.bySport[sportType]) {
-      point.bySport[sportType] = { time: 0, distance: 0, elevation: 0 };
+      point.bySport[sportType] = { time: 0, distance: 0, elevation: 0, calories: 0 };
     }
     point.bySport[sportType].time += hours;
     point.bySport[sportType].distance += km;
     point.bySport[sportType].elevation += elev;
+    point.bySport[sportType].calories += cal;
   });
 
   return Array.from(weekMap.values()).sort((a, b) =>

@@ -106,13 +106,25 @@ function getSportColor(sport: string, usedColors: Set<string>): string {
   return color;
 }
 
-type MetricMode = "time" | "distance" | "elevation";
+type MetricMode = "time" | "distance" | "elevation" | "calories";
 
 const metricConfig = {
   time: { label: "Hours", unit: "h", key: "time" as const },
   distance: { label: "Distance", unit: "km", key: "distance" as const },
   elevation: { label: "Elevation", unit: "m", key: "elevation" as const },
+  calories: { label: "Calories", unit: "kcal", key: "calories" as const },
 };
+
+function formatMetricTotal(value: number, mode: MetricMode): string {
+  if (mode === "calories") return Math.round(value).toLocaleString();
+  return value.toFixed(1);
+}
+
+function formatYAxis(value: number, mode: MetricMode): string {
+  if (mode === "time") return `${value}h`;
+  if (mode === "calories") return value >= 1000 ? `${(value / 1000).toFixed(0)}k` : `${value}`;
+  return `${value}`;
+}
 
 // Inner component to use hooks properly
 function WeeklyVolumeContent({
@@ -162,9 +174,8 @@ function WeeklyVolumeContent({
       allSports.forEach((sport) => {
         const sportData = week.bySport[sport];
         if (sportData) {
-          point[sport] = Number(
-            sportData[metricConfig[metricMode].key].toFixed(2)
-          );
+          const raw = sportData[metricConfig[metricMode].key];
+          point[sport] = metricMode === "calories" ? Math.round(raw) : Number(raw.toFixed(2));
         } else {
           point[sport] = 0;
         }
@@ -173,84 +184,138 @@ function WeeklyVolumeContent({
     });
   }, [data, allSports, metricMode]);
 
+  // Summary stats for calories mode
+  const calorieSummary = useMemo(() => {
+    if (metricMode !== "calories") return null;
+    const totalCal = data.reduce((sum, w) => sum + w.totalCalories, 0);
+    const days = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+    const weeks = data.length;
+    return {
+      total: totalCal,
+      avgPerDay: totalCal / days,
+      avgPerWeek: weeks > 0 ? totalCal / weeks : 0,
+    };
+  }, [data, metricMode, startDate, endDate]);
+
   if (data.length === 0) {
     return <div className={chartStyles.emptyState}>No activities found</div>;
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart
-        data={chartData}
-        margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-a4)" />
-        <XAxis
-          dataKey="week"
-          tick={{ fontSize: 11, fill: "var(--gray-11)" }}
-          tickLine={{ stroke: "var(--gray-a6)" }}
-          axisLine={{ stroke: "var(--gray-a6)" }}
-          interval="preserveStartEnd"
-        />
-        <YAxis
-          tick={{ fontSize: 11, fill: "var(--gray-11)" }}
-          tickLine={{ stroke: "var(--gray-a6)" }}
-          axisLine={{ stroke: "var(--gray-a6)" }}
-          width={45}
-          tickFormatter={(v) => (metricMode === "time" ? `${v}h` : `${v}`)}
-        />
-        <Tooltip
-          content={({ active, payload }) => {
-            if (!active || !payload?.length) return null;
-            const d = payload[0].payload;
-            const total = payload.reduce(
-              (sum, p) => sum + (Number(p.value) || 0),
-              0
-            );
-            return (
-              <div className={chartStyles.tooltip}>
-                <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
-                {payload
-                  .filter((p) => Number(p.value) > 0)
-                  .map((p) => (
-                    <div key={p.dataKey} className={chartStyles.tooltipValue}>
-                      <span
-                        className={chartStyles.tooltipDot}
-                        style={{ backgroundColor: p.fill }}
-                      />
-                      {p.dataKey}: {p.value} {metricConfig[metricMode].unit}
-                    </div>
-                  ))}
-                <div
-                  style={{
-                    marginTop: "0.375rem",
-                    paddingTop: "0.375rem",
-                    borderTop: "1px solid var(--gray-a4)",
-                    fontWeight: 600,
-                  }}
-                >
-                  Total: {total.toFixed(1)} {metricConfig[metricMode].unit}
-                </div>
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
+      {calorieSummary && calorieSummary.total > 0 && (
+        <div style={{
+          display: "flex",
+          gap: "1rem",
+          marginBottom: "0.5rem",
+          flexWrap: "wrap",
+          flexShrink: 0,
+        }}>
+          {[
+            { label: "Total", value: `${Math.round(calorieSummary.total).toLocaleString()} kcal` },
+            { label: "Avg / day", value: `${Math.round(calorieSummary.avgPerDay).toLocaleString()} kcal` },
+            { label: "Avg / week", value: `${Math.round(calorieSummary.avgPerWeek).toLocaleString()} kcal` },
+          ].map((stat) => (
+            <div key={stat.label} style={{
+              flex: "1 1 0",
+              minWidth: "80px",
+              padding: "0.375rem 0.625rem",
+              background: "var(--gray-a3)",
+              borderRadius: "var(--radius-2)",
+              textAlign: "center",
+            }}>
+              <div style={{ fontSize: "0.625rem", color: "var(--gray-10)", marginBottom: "0.125rem" }}>
+                {stat.label}
               </div>
-            );
-          }}
-        />
-        <Legend
-          wrapperStyle={{ fontSize: "0.75rem" }}
-          formatter={(value) => (
-            <span style={{ color: "var(--gray-11)" }}>{value}</span>
-          )}
-        />
-        {allSports.map((sport) => (
-          <Bar
-            key={sport}
-            dataKey={sport}
-            stackId="volume"
-            fill={sportColorMap[sport]}
-            radius={[2, 2, 0, 0]}
-          />
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
+              <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--gray-12)" }}>
+                {stat.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-a4)" />
+            <XAxis
+              dataKey="week"
+              tick={{ fontSize: 11, fill: "var(--gray-11)" }}
+              tickLine={{ stroke: "var(--gray-a6)" }}
+              axisLine={{ stroke: "var(--gray-a6)" }}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: "var(--gray-11)" }}
+              tickLine={{ stroke: "var(--gray-a6)" }}
+              axisLine={{ stroke: "var(--gray-a6)" }}
+              width={45}
+              tickFormatter={(v) => formatYAxis(v, metricMode)}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload;
+                const total = payload.reduce(
+                  (sum, p) => sum + (Number(p.value) || 0),
+                  0
+                );
+                const unit = metricConfig[metricMode].unit;
+                return (
+                  <div className={chartStyles.tooltip}>
+                    <div className={chartStyles.tooltipLabel}>{d.weekRange}</div>
+                    {payload
+                      .filter((p) => Number(p.value) > 0)
+                      .map((p) => (
+                        <div key={p.dataKey} className={chartStyles.tooltipValue}>
+                          <span
+                            className={chartStyles.tooltipDot}
+                            style={{ backgroundColor: p.fill }}
+                          />
+                          {p.dataKey}: {formatMetricTotal(Number(p.value), metricMode)} {unit}
+                        </div>
+                      ))}
+                    <div
+                      style={{
+                        marginTop: "0.375rem",
+                        paddingTop: "0.375rem",
+                        borderTop: "1px solid var(--gray-a4)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Total: {formatMetricTotal(total, metricMode)} {unit}
+                    </div>
+                    {metricMode === "calories" && (
+                      <div style={{ fontSize: "0.6875rem", color: "var(--gray-10)", marginTop: "0.125rem" }}>
+                        ≈ {formatMetricTotal(total / 7, metricMode)} {unit}/day
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: "0.75rem" }}
+              formatter={(value) => (
+                <span style={{ color: "var(--gray-11)" }}>{value}</span>
+              )}
+            />
+            {allSports.map((sport) => (
+              <Bar
+                key={sport}
+                dataKey={sport}
+                stackId="volume"
+                fill={sportColorMap[sport]}
+                radius={[2, 2, 0, 0]}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
@@ -283,7 +348,7 @@ export function WeeklyVolumeChart({
       defaultTimeSpan="90d"
       controls={
         <div className={chartStyles.toggleGroup}>
-          {(["time", "distance", "elevation"] as MetricMode[]).map((mode) => (
+          {(["time", "distance", "elevation", "calories"] as MetricMode[]).map((mode) => (
             <button
               key={mode}
               className={`${chartStyles.toggleBtn} ${

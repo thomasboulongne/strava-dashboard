@@ -28,7 +28,13 @@ export function Home() {
     }
   }, [isAuthenticated, isLoading, recovering, navigate]);
 
-  if (recovering) {
+  // Keep showing the spinner while we have any reason to believe the user
+  // might be authenticated.  This prevents the login page from flashing
+  // in the frame between recovery completing and the navigate() firing.
+  const pendingRedirect =
+    recovering || isAuthenticated || !!getStoredSession();
+
+  if (pendingRedirect) {
     return (
       <Container size="2" className={styles.container}>
         <Flex
