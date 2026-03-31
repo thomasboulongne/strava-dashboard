@@ -55,6 +55,31 @@ function getPeriodLabel(period: Period): string {
   }
 }
 
+const POWER_ZONES = [
+  { zone: "Z1", name: "Recovery", pctMin: 0, pctMax: 0.55, color: "#94a3b8" },
+  { zone: "Z2", name: "Endurance", pctMin: 0.55, pctMax: 0.75, color: "#22c55e" },
+  { zone: "Z3", name: "Tempo", pctMin: 0.75, pctMax: 0.90, color: "#84cc16" },
+  { zone: "Z4", name: "Threshold", pctMin: 0.90, pctMax: 1.05, color: "#eab308" },
+  { zone: "Z5", name: "VO2max", pctMin: 1.05, pctMax: 1.20, color: "#f97316" },
+  { zone: "Z6", name: "Anaerobic", pctMin: 1.20, pctMax: 1.50, color: "#ef4444" },
+  {
+    zone: "Z7",
+    name: "Neuromuscular",
+    pctMin: 1.50,
+    pctMax: Infinity,
+    color: "#dc2626",
+  },
+];
+
+function formatZoneRange(
+  zone: (typeof POWER_ZONES)[number],
+  ftp: number
+): string {
+  if (zone.pctMin === 0) return `< ${Math.round(ftp * zone.pctMax)}w`;
+  if (!isFinite(zone.pctMax)) return `> ${Math.round(ftp * zone.pctMin)}w`;
+  return `${Math.round(ftp * zone.pctMin)}\u2013${Math.round(ftp * zone.pctMax)}w`;
+}
+
 function ActivityRow({
   type,
   icon,
@@ -242,6 +267,55 @@ export function StatsOverview({
           </div>
         )}
       </div>
+
+      {/* Power Zones */}
+      {athlete.ftp && (
+        <div className={styles.powerZonesSection}>
+          <span className={styles.powerZonesTitle}>Power Zones</span>
+          <div className={styles.powerZonesBar}>
+            {POWER_ZONES.map((z) => (
+              <div
+                key={z.zone}
+                className={styles.zoneSegment}
+                style={{ backgroundColor: z.color }}
+                title={`${z.zone} ${z.name}: ${formatZoneRange(z, athlete.ftp!)}`}
+              >
+                {z.zone}
+              </div>
+            ))}
+          </div>
+          <div className={styles.zoneGrid}>
+            {POWER_ZONES.map((z) => (
+              <div key={z.zone} className={styles.zoneItem}>
+                <span
+                  className={styles.zoneDot}
+                  style={{ backgroundColor: z.color }}
+                />
+                <span className={styles.zoneItemLabel}>
+                  {z.zone}{" "}
+                  <span className={styles.zoneItemName}>{z.name}</span>
+                </span>
+                <span className={styles.zoneItemRange}>
+                  {formatZoneRange(z, athlete.ftp!)}
+                </span>
+              </div>
+            ))}
+            <div className={`${styles.zoneItem} ${styles.sweetSpotItem}`}>
+              <span
+                className={styles.zoneDot}
+                style={{
+                  background: "linear-gradient(135deg, #84cc16, #eab308)",
+                }}
+              />
+              <span className={styles.zoneItemLabel}>Sweet Spot</span>
+              <span className={styles.zoneItemRange}>
+                {Math.round(athlete.ftp! * 0.84)}–
+                {Math.round(athlete.ftp! * 0.97)}w
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Highlight Stats */}
       <div className={styles.highlightGrid}>
