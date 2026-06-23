@@ -75,7 +75,7 @@ MCP_ATHLETE_ID=
 
 - `list_activities` — recent activities as compact summaries (date/sport filters)
 - `get_activity` — full activity detail + lap splits + HR/power stream summary (time-in-zone)
-- `get_activity_summary` — cycling-aware training load by ISO week and sport: volume, relative effort, TSS/IF, kilojoules, weighted-average watts, HR, ride/power/indoor counts, plus overall acute-vs-chronic load (ramp ratio) and which weeks have a saved report. FTP comes from Strava (fallback: estimated from power zones).
+- `get_activity_summary` — cycling-aware training load by ISO week and sport: volume, relative effort, TSS/IF, kilojoules, weighted-average watts, HR, ride/power/indoor counts, plus overall acute-vs-chronic load (ramp ratio) and which weeks have a saved report. FTP is read from the cached value in the `users` table (refreshed whenever the dashboard loads `/api/athlete`); fallback is estimated from power zones.
 - `export_activities` — bulk per-activity rows (up to 1000) over a date range with cycling/power fields and day-of-week / local start time, for habit and long-range analysis
 - `get_weekly_reports` — saved weekly markdown reports (qualitative context) over a date range
 - `get_athlete_zones` — heart-rate and power zone ranges

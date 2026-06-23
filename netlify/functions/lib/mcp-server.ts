@@ -14,7 +14,6 @@ import {
   type DbActivity,
   type DbAthleteZones,
 } from "./db.js";
-import { fetchAthleteFtp } from "./strava-api.js";
 import {
   isIndoorRide,
   effectiveSportType,
@@ -28,14 +27,15 @@ import {
 
 const STRAVA_ACTIVITY_URL = "https://www.strava.com/activities/";
 
-// Resolve the athlete's FTP: live Strava value if available, else estimated
-// from their Strava power-zone boundaries. Used for TSS/IF calculations.
+// Resolve the athlete's FTP: cached value from the users table (refreshed
+// whenever the dashboard fetches /api/athlete), else estimated from their
+// Strava power-zone boundaries. Avoids a live Strava call per request.
 async function resolveFtp(
   athleteId: number,
   zones: DbAthleteZones | null,
-): Promise<{ ftp: number | null; source: "strava" | "estimated_from_zones" | null }> {
-  const live = await fetchAthleteFtp(athleteId);
-  if (live) return { ftp: live, source: "strava" };
+): Promise<{ ftp: number | null; source: "cached" | "estimated_from_zones" | null }> {
+  const user = await getUserById(athleteId);
+  if (user?.ftp && user.ftp > 0) return { ftp: user.ftp, source: "cached" };
   const estimated = estimateFtpFromPowerZones(zones?.power_zones);
   if (estimated) return { ftp: estimated, source: "estimated_from_zones" };
   return { ftp: null, source: null };

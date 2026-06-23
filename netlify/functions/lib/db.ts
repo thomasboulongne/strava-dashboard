@@ -21,6 +21,7 @@ export interface DbUser {
   access_token: string;
   refresh_token: string;
   token_expires_at: number;
+  ftp: number | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -167,9 +168,15 @@ export async function initializeSchema() {
       access_token TEXT NOT NULL,
       refresh_token TEXT NOT NULL,
       token_expires_at BIGINT NOT NULL,
+      ftp INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Migration: add cached FTP column for existing databases
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ftp INTEGER
   `;
 
   await sql`
@@ -394,6 +401,13 @@ export async function updateUserTokens(
         updated_at = NOW()
     WHERE id = ${id}
   `;
+}
+
+// Cache the athlete's FTP (from Strava DetailedAthlete) for later use by the
+// MCP server, avoiding a live Strava call on every summary request.
+export async function updateUserFtp(id: number, ftp: number): Promise<void> {
+  const sql = getDb();
+  await sql`UPDATE users SET ftp = ${ftp}, updated_at = NOW() WHERE id = ${id}`;
 }
 
 // Activity operations
