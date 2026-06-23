@@ -53,6 +53,14 @@ export function AuthButton() {
           >
             Training Plan
           </Link>
+          <Link
+            to="/settings"
+            className={`${styles.navLink} ${
+              location.pathname === "/settings" ? styles.navLinkActive : ""
+            }`}
+          >
+            Settings
+          </Link>
         </Flex>
 
         <Flex align="end" gap="2">

@@ -451,4 +451,28 @@ export async function saveWeeklyReport(
   });
 }
 
+// MCP connector key endpoints
+export interface McpApiKey {
+  key: string;
+  label: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  connectorUrl: string;
+}
+
+export async function getMcpKeys(): Promise<{ keys: McpApiKey[] }> {
+  return fetchApi<{ keys: McpApiKey[] }>("/mcp-key");
+}
+
+export async function createMcpKey(): Promise<{ key: McpApiKey }> {
+  return fetchApi<{ key: McpApiKey }>("/mcp-key", { method: "POST" });
+}
+
+export async function revokeMcpKey(key: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(
+    `/mcp-key?key=${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+}
+
 export { ApiError };

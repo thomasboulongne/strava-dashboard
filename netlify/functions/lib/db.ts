@@ -143,6 +143,15 @@ export interface DbWeeklyReport {
   updated_at: Date;
 }
 
+// Per-user MCP API key for the ChatGPT connector
+export interface DbMcpApiKey {
+  key: string;
+  athlete_id: number;
+  label: string | null;
+  created_at: Date;
+  last_used_at: Date | null;
+}
+
 // Schema initialization - run once to set up tables
 export async function initializeSchema() {
   const sql = getDb();
@@ -311,6 +320,21 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_weekly_reports_athlete_week ON weekly_reports(athlete_id, week_start)
+  `;
+
+  // MCP API keys - per-user secrets used by the ChatGPT MCP connector
+  await sql`
+    CREATE TABLE IF NOT EXISTS mcp_api_keys (
+      key TEXT PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_athlete ON mcp_api_keys(athlete_id)
   `;
 
   return { success: true };
@@ -1264,6 +1288,44 @@ export async function getWeeklyReport(
   return (result[0] as DbWeeklyReport) ?? null;
 }
 
+// Get weekly reports for an athlete, optionally bounded by week_start range.
+export async function getWeeklyReportsForAthlete(
+  athleteId: number,
+  options: { after?: string; before?: string } = {},
+): Promise<DbWeeklyReport[]> {
+  const sql = getDb();
+  const { after, before } = options;
+
+  let result;
+  if (after && before) {
+    result = await sql`
+      SELECT * FROM weekly_reports
+      WHERE athlete_id = ${athleteId}
+        AND week_start >= ${after} AND week_start <= ${before}
+      ORDER BY week_start DESC
+    `;
+  } else if (after) {
+    result = await sql`
+      SELECT * FROM weekly_reports
+      WHERE athlete_id = ${athleteId} AND week_start >= ${after}
+      ORDER BY week_start DESC
+    `;
+  } else if (before) {
+    result = await sql`
+      SELECT * FROM weekly_reports
+      WHERE athlete_id = ${athleteId} AND week_start <= ${before}
+      ORDER BY week_start DESC
+    `;
+  } else {
+    result = await sql`
+      SELECT * FROM weekly_reports
+      WHERE athlete_id = ${athleteId}
+      ORDER BY week_start DESC
+    `;
+  }
+  return result as DbWeeklyReport[];
+}
+
 export async function upsertWeeklyReport(
   athleteId: number,
   weekStart: string,
@@ -1281,4 +1343,56 @@ export async function upsertWeeklyReport(
     RETURNING *
   `;
   return result[0] as DbWeeklyReport;
+}
+
+// MCP API key operations
+
+export async function getApiKey(key: string): Promise<DbMcpApiKey | null> {
+  const sql = getDb();
+  const result = await sql`SELECT * FROM mcp_api_keys WHERE key = ${key} LIMIT 1`;
+  return (result[0] as DbMcpApiKey) || null;
+}
+
+export async function getApiKeysForAthlete(
+  athleteId: number,
+): Promise<DbMcpApiKey[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM mcp_api_keys
+    WHERE athlete_id = ${athleteId}
+    ORDER BY created_at DESC
+  `;
+  return result as DbMcpApiKey[];
+}
+
+export async function createApiKey(
+  athleteId: number,
+  key: string,
+  label: string | null = null,
+): Promise<DbMcpApiKey> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO mcp_api_keys (key, athlete_id, label)
+    VALUES (${key}, ${athleteId}, ${label})
+    RETURNING *
+  `;
+  return result[0] as DbMcpApiKey;
+}
+
+export async function deleteApiKey(
+  athleteId: number,
+  key: string,
+): Promise<boolean> {
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM mcp_api_keys
+    WHERE key = ${key} AND athlete_id = ${athleteId}
+    RETURNING key
+  `;
+  return result.length > 0;
+}
+
+export async function touchApiKey(key: string): Promise<void> {
+  const sql = getDb();
+  await sql`UPDATE mcp_api_keys SET last_used_at = NOW() WHERE key = ${key}`;
 }

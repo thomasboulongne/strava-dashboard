@@ -12,6 +12,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@eslint/js@^9.39.1",
+        "npm:@modelcontextprotocol/sdk@^1.29.0",
         "npm:@neondatabase/serverless@^1.0.2",
         "npm:@netlify/functions@^5.1.2",
         "npm:@radix-ui/themes@^3.2.1",
@@ -40,6 +41,7 @@
         "npm:typescript@~5.9.3",
         "npm:vite-plugin-pwa@^1.2.0",
         "npm:vite@^7.2.4",
+        "npm:zod@^4.4.3",
         "npm:zustand@^5.0.9"
       ]
     }

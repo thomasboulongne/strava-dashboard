@@ -154,6 +154,25 @@ export async function fetchActivityStreams(
   }
 }
 
+// Fetch the athlete's FTP from Strava (DetailedAthlete.ftp). Returns null if
+// unavailable (no token, no FTP set, or request fails).
+export async function fetchAthleteFtp(athleteId: number): Promise<number | null> {
+  const token = await getValidAccessToken(athleteId);
+  if (!token) return null;
+  try {
+    const response = await fetch(`${STRAVA_API_BASE}/athlete`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const ftp = data?.ftp;
+    return typeof ftp === "number" && ftp > 0 ? ftp : null;
+  } catch (error) {
+    console.error(`Strava API: Error fetching FTP for athlete ${athleteId}:`, error);
+    return null;
+  }
+}
+
 // Check if an activity might have streams worth fetching
 // (has heart rate or power data)
 export function activityMightHaveStreams(activity: Record<string, unknown>): boolean {

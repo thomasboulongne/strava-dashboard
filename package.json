@@ -12,6 +12,7 @@
     "predev:netlify": "rm -rf dist; rm -rf .netlify"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.0.2",
     "@netlify/functions": "^5.1.2",
     "@radix-ui/themes": "^3.2.1",
@@ -26,6 +27,7 @@
     "react-leaflet": "^5.0.0",
     "react-router": "^7.11.0",
     "recharts": "^3.6.0",
+    "zod": "^4.4.3",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
