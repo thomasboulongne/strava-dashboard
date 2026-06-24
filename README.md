@@ -71,16 +71,29 @@ ChatGPT to their own data. Keys can be revoked anytime from the same page.
 MCP_ATHLETE_ID=
 ```
 
-### Available tools (all read-only)
+### Read tools
 
 - `list_activities` — recent activities as compact summaries (date/sport filters)
 - `get_activity` — full activity detail + lap splits + HR/power stream summary (time-in-zone)
 - `get_activity_summary` — cycling-aware training load by ISO week and sport: volume, relative effort, TSS/IF, kilojoules, weighted-average watts, HR, ride/power/indoor counts, plus overall acute-vs-chronic load (ramp ratio) and which weeks have a saved report. FTP is read from the cached value in the `users` table (refreshed whenever the dashboard loads `/api/athlete`); fallback is estimated from power zones.
-- `export_activities` — bulk per-activity rows (up to 1000) over a date range with cycling/power fields and day-of-week / local start time, for habit and long-range analysis
+- `export_activities` — bulk per-activity rows (up to 1000) over a date range with cycling/power fields, day-of-week / local start time, and `private_note`, for habit and long-range analysis
 - `get_weekly_reports` — saved weekly markdown reports (qualitative context) over a date range
+- `get_training_plan` — planned workouts for a week (with ids needed for edits)
 - `get_athlete_zones` — heart-rate and power zone ranges
 - `get_athlete_profile` — name and Strava ID (no credentials)
 - `search` / `fetch` — keyword search + document fetch (broad ChatGPT/deep-research compatibility)
+
+### Write tools
+
+The connector key is read-write: these tools modify your data. They carry MCP
+annotations (`readOnlyHint: false`, `destructiveHint` where relevant), so ChatGPT
+asks for confirmation before calling them. Every write is scoped to the key's athlete.
+
+- `upsert_training_plan` — create/replace a week's plan from structured workouts (`mode: replace | merge`)
+- `update_workout` — edit a single workout's fields by id
+- `delete_training_plan` — clear a week's plan (destructive)
+- `link_activity_to_workout` / `unlink_activity_from_workout` — manage activity links
+- `upsert_weekly_report` — save/replace the weekly report (title + markdown)
 
 ### Connect it in ChatGPT
 

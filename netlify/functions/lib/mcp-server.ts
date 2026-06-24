@@ -11,8 +11,17 @@ import {
   getAthleteZones,
   getUserById,
   getWeeklyReportsForAthlete,
+  getTrainingWorkoutsForWeek,
+  getTrainingWorkoutById,
+  upsertTrainingWorkoutsBatch,
+  updateTrainingWorkout,
+  deleteTrainingWorkoutsForWeek,
+  linkActivityToWorkout,
+  unlinkActivityFromWorkout,
+  upsertWeeklyReport,
   type DbActivity,
   type DbAthleteZones,
+  type DbTrainingWorkout,
 } from "./db.js";
 import {
   isIndoorRide,
@@ -313,6 +322,35 @@ function errorResult(message: string) {
   };
 }
 
+// --- Training plan helpers ---------------------------------------------------
+
+// Normalize a training workout row for tool output (formats workout_date).
+function serializeWorkout(w: DbTrainingWorkout) {
+  const date =
+    w.workout_date instanceof Date
+      ? w.workout_date.toISOString().slice(0, 10)
+      : String(w.workout_date).slice(0, 10);
+  return {
+    id: w.id,
+    workout_date: date,
+    session_name: w.session_name,
+    duration_target_minutes: w.duration_target_minutes,
+    intensity_target: w.intensity_target,
+    notes: w.notes,
+    matched_activity_id: w.matched_activity_id,
+    is_manually_linked: w.is_manually_linked,
+  };
+}
+
+// Add `days` days to a YYYY-MM-DD string, returning YYYY-MM-DD (UTC math).
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 // --- Server ------------------------------------------------------------------
 
 // Build a server scoped to a single athlete. The caller (mcp.ts) resolves the
@@ -350,6 +388,7 @@ export function buildServer(athleteId: number): McpServer {
           .optional()
           .describe("Max activities to return (default 30, max 50)"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ after, before, type, limit }) => {
       try {
@@ -397,6 +436,7 @@ export function buildServer(athleteId: number): McpServer {
           .optional()
           .describe("Include HR/power stream summary and time-in-zone (default true)"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ id, include_laps, include_streams_summary }) => {
       try {
@@ -440,6 +480,7 @@ export function buildServer(athleteId: number): McpServer {
           .describe("Start of range, ISO date (default: 8 weeks ago)"),
         before: z.string().optional().describe("End of range, ISO date (default: now)"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ after, before }) => {
       try {
@@ -537,6 +578,7 @@ export function buildServer(athleteId: number): McpServer {
       description:
         "Get the athlete's configured heart-rate and power zone ranges. Use these to interpret time-in-zone data and to prescribe intensity targets.",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => {
       try {
@@ -563,6 +605,7 @@ export function buildServer(athleteId: number): McpServer {
       description:
         "Get the athlete's basic profile (name and Strava ID). Contains no credentials.",
       inputSchema: {},
+      annotations: { readOnlyHint: true },
     },
     async () => {
       try {
@@ -590,6 +633,7 @@ export function buildServer(athleteId: number): McpServer {
       inputSchema: {
         query: z.string().describe("Keyword to match against activity name or type"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ query }) => {
       try {
@@ -630,6 +674,7 @@ export function buildServer(athleteId: number): McpServer {
       inputSchema: {
         id: z.string().describe("Activity ID (string) as returned by search"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ id }) => {
       try {
@@ -691,6 +736,7 @@ export function buildServer(athleteId: number): McpServer {
           .optional()
           .describe("Max rows to return (default 1000, max 1000)"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ after, before, type, limit }) => {
       try {
@@ -733,6 +779,10 @@ export function buildServer(athleteId: number): McpServer {
             calories: n(a.calories),
             trainer: a.trainer === true,
             commute: a.commute === true,
+            private_note:
+              typeof a.private_note === "string" && a.private_note
+                ? a.private_note
+                : null,
           };
         });
 
@@ -770,6 +820,7 @@ export function buildServer(athleteId: number): McpServer {
           .optional()
           .describe("Latest week_start, ISO date"),
       },
+      annotations: { readOnlyHint: true },
     },
     async ({ after, before }) => {
       try {
@@ -787,6 +838,288 @@ export function buildServer(athleteId: number): McpServer {
             title: r.title,
             markdown: r.markdown,
           })),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Training plan: read --------------------------------------------------
+
+  server.registerTool(
+    "get_training_plan",
+    {
+      title: "Get training plan for a week",
+      description:
+        "Get the planned workouts for the ISO week starting on `week_start` (a Monday, YYYY-MM-DD), including each workout's id (needed to edit it), target duration/intensity, notes, and any matched activity.",
+      inputSchema: {
+        week_start: z
+          .string()
+          .describe("Monday of the week, ISO date (YYYY-MM-DD)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ week_start }) => {
+      try {
+        if (!DATE_RE.test(week_start)) {
+          return errorResult("week_start must be YYYY-MM-DD");
+        }
+        const workouts = await getTrainingWorkoutsForWeek(athleteId, week_start);
+        return textResult({
+          week_start,
+          count: workouts.length,
+          workouts: workouts.map(serializeWorkout),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Training plan: write -------------------------------------------------
+
+  server.registerTool(
+    "upsert_training_plan",
+    {
+      title: "Upsert weekly training plan",
+      description:
+        "Create or replace the training plan for the ISO week starting on `week_start` (Monday). Provide structured `workouts`; each date must fall within that week. mode='replace' (default) clears the week first then inserts; mode='merge' overwrites only the given days and keeps the rest. Writes to the athlete's plan.",
+      inputSchema: {
+        week_start: z
+          .string()
+          .describe("Monday of the week, ISO date (YYYY-MM-DD)"),
+        workouts: z
+          .array(
+            z.object({
+              date: z.string().describe("Workout date, YYYY-MM-DD"),
+              session_name: z.string().describe("Session name/title"),
+              duration_target_minutes: z
+                .number()
+                .int()
+                .positive()
+                .nullable()
+                .optional()
+                .describe("Target duration in minutes"),
+              intensity_target: z
+                .string()
+                .nullable()
+                .optional()
+                .describe("Intensity target, e.g. 'Z2', '3x10min @ threshold', '200-220W'"),
+              notes: z.string().nullable().optional(),
+            }),
+          )
+          .min(1)
+          .describe("Structured workouts for the week"),
+        mode: z
+          .enum(["replace", "merge"])
+          .optional()
+          .describe("replace (default) clears the week first; merge keeps other days"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ week_start, workouts, mode }) => {
+      try {
+        if (!DATE_RE.test(week_start)) {
+          return errorResult("week_start must be YYYY-MM-DD");
+        }
+        const weekEnd = addDays(week_start, 7);
+        for (const w of workouts) {
+          if (!DATE_RE.test(w.date)) {
+            return errorResult(`Invalid workout date: ${w.date}`);
+          }
+          if (w.date < week_start || w.date >= weekEnd) {
+            return errorResult(
+              `Workout date ${w.date} is outside the week ${week_start}..${addDays(week_start, 6)}`,
+            );
+          }
+        }
+
+        const effectiveMode = mode ?? "replace";
+        if (effectiveMode === "replace") {
+          await deleteTrainingWorkoutsForWeek(athleteId, week_start);
+        }
+
+        const imported = await upsertTrainingWorkoutsBatch(
+          workouts.map((w) => ({
+            athlete_id: athleteId,
+            workout_date: w.date,
+            session_name: w.session_name,
+            duration_target_minutes: w.duration_target_minutes ?? null,
+            intensity_target: w.intensity_target ?? null,
+            notes: w.notes ?? null,
+          })),
+        );
+
+        const saved = await getTrainingWorkoutsForWeek(athleteId, week_start);
+        return textResult({
+          week_start,
+          mode: effectiveMode,
+          imported,
+          workouts: saved.map(serializeWorkout),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_workout",
+    {
+      title: "Update a workout",
+      description:
+        "Update a single planned workout by its id (from get_training_plan). Only the fields you provide are changed. Use this to tweak a session's name, target duration, intensity, or notes.",
+      inputSchema: {
+        workout_id: z.number().int().describe("Workout id from get_training_plan"),
+        session_name: z.string().optional(),
+        duration_target_minutes: z.number().int().positive().nullable().optional(),
+        intensity_target: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes }) => {
+      try {
+        const existing = await getTrainingWorkoutById(workout_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Workout ${workout_id} not found`);
+        }
+        const updated = await updateTrainingWorkout(workout_id, {
+          session_name: session_name ?? existing.session_name,
+          duration_target_minutes:
+            duration_target_minutes !== undefined
+              ? duration_target_minutes
+              : existing.duration_target_minutes,
+          intensity_target:
+            intensity_target !== undefined
+              ? intensity_target
+              : existing.intensity_target,
+          notes: notes !== undefined ? notes : existing.notes,
+        });
+        return textResult({ workout: serializeWorkout(updated) });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_training_plan",
+    {
+      title: "Delete a week's training plan",
+      description:
+        "Delete all planned workouts for the ISO week starting on `week_start` (Monday). Destructive; use with care.",
+      inputSchema: {
+        week_start: z
+          .string()
+          .describe("Monday of the week, ISO date (YYYY-MM-DD)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ week_start }) => {
+      try {
+        if (!DATE_RE.test(week_start)) {
+          return errorResult("week_start must be YYYY-MM-DD");
+        }
+        const deleted = await deleteTrainingWorkoutsForWeek(athleteId, week_start);
+        return textResult({ week_start, deleted });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "link_activity_to_workout",
+    {
+      title: "Link an activity to a workout",
+      description:
+        "Manually link a completed activity to a planned workout (both must belong to you). Use after confirming which session an activity corresponds to.",
+      inputSchema: {
+        workout_id: z.number().int().describe("Workout id from get_training_plan"),
+        activity_id: z.number().int().describe("Strava activity id"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ workout_id, activity_id }) => {
+      try {
+        const workout = await getTrainingWorkoutById(workout_id);
+        if (!workout || Number(workout.athlete_id) !== athleteId) {
+          return errorResult(`Workout ${workout_id} not found`);
+        }
+        const activity = await getActivityById(activity_id);
+        if (!activity || Number(activity.athlete_id) !== athleteId) {
+          return errorResult(`Activity ${activity_id} not found`);
+        }
+        const updated = await linkActivityToWorkout(workout_id, activity_id, true);
+        return textResult({ workout: updated ? serializeWorkout(updated) : null });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "unlink_activity_from_workout",
+    {
+      title: "Unlink an activity from a workout",
+      description:
+        "Remove the activity link from a planned workout (yours only).",
+      inputSchema: {
+        workout_id: z.number().int().describe("Workout id from get_training_plan"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ workout_id }) => {
+      try {
+        const workout = await getTrainingWorkoutById(workout_id);
+        if (!workout || Number(workout.athlete_id) !== athleteId) {
+          return errorResult(`Workout ${workout_id} not found`);
+        }
+        const updated = await unlinkActivityFromWorkout(workout_id);
+        return textResult({ workout: updated ? serializeWorkout(updated) : null });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Weekly report: write -------------------------------------------------
+
+  server.registerTool(
+    "upsert_weekly_report",
+    {
+      title: "Save weekly report",
+      description:
+        "Create or replace the saved weekly report for the week starting on `week_start` (Monday, YYYY-MM-DD). Provide a `title` and the full `markdown` body. Use this to upload a report you generated from the week's activities and private notes.",
+      inputSchema: {
+        week_start: z
+          .string()
+          .describe("Monday of the week, ISO date (YYYY-MM-DD)"),
+        title: z.string().describe("Report title"),
+        markdown: z.string().describe("Full report body in markdown"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ week_start, title, markdown }) => {
+      try {
+        if (!DATE_RE.test(week_start)) {
+          return errorResult("week_start must be YYYY-MM-DD");
+        }
+        const report = await upsertWeeklyReport(
+          athleteId,
+          week_start,
+          title,
+          markdown,
+        );
+        return textResult({
+          week_start:
+            report.week_start instanceof Date
+              ? report.week_start.toISOString().slice(0, 10)
+              : String(report.week_start).slice(0, 10),
+          title: report.title,
+          saved: true,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
