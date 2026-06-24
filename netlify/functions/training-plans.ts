@@ -27,6 +27,22 @@ import {
   parseTrainingPlanTable,
   convertToDbWorkouts,
 } from "./lib/training-plan-parser.js";
+import {
+  syncWorkoutToIcu,
+  syncWeekToIcu,
+  deleteWorkoutsFromIcu,
+} from "./lib/icu-sync.js";
+
+/**
+ * ISO-week Monday (YYYY-MM-DD) for a given YYYY-MM-DD date string.
+ */
+function isoWeekMonday(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const day = (dt.getUTCDay() + 6) % 7; // 0 = Monday
+  dt.setUTCDate(dt.getUTCDate() - day);
+  return dt.toISOString().slice(0, 10);
+}
 
 /**
  * Format a date to YYYY-MM-DD (handles both Date objects and strings)
@@ -1906,8 +1922,13 @@ export default async function handler(request: Request, _context: Context) {
         }
 
         const body = await req.json();
-        const { session_name, duration_target_minutes, intensity_target, notes } =
-          body;
+        const {
+          session_name,
+          duration_target_minutes,
+          intensity_target,
+          notes,
+          workout_text,
+        } = body;
 
         console.log('Request body:', { session_name, duration_target_minutes, intensity_target, notes });
 
@@ -1950,13 +1971,19 @@ export default async function handler(request: Request, _context: Context) {
           }
         }
 
-        // Update workout
+        // Update workout (only overwrite workout_text when the field is sent)
         const updatedWorkout = await updateTrainingWorkout(workoutId, {
           session_name: session_name.trim(),
           duration_target_minutes: durationMinutes,
           intensity_target: intensity_target || null,
           notes: notes || null,
+          ...(workout_text !== undefined
+            ? { workout_text: workout_text || null }
+            : {}),
         });
+
+        // Mirror the change to intervals.icu (best-effort).
+        await syncWorkoutToIcu(athleteId, updatedWorkout);
 
         return jsonResponseWithCookies(
           {
@@ -2170,6 +2197,15 @@ export default async function handler(request: Request, _context: Context) {
         // Upsert workouts
         const count = await upsertTrainingWorkoutsBatch(dbWorkouts);
 
+        // Push the affected week(s) to intervals.icu (best-effort, no-op if
+        // the athlete hasn't connected their account).
+        const weeks = new Set(
+          dbWorkouts.map((w) => isoWeekMonday(formatDateString(w.workout_date))),
+        );
+        for (const weekStart of weeks) {
+          await syncWeekToIcu(athleteId, weekStart);
+        }
+
         return jsonResponseWithCookies(
           {
             success: true,
@@ -2205,10 +2241,16 @@ export default async function handler(request: Request, _context: Context) {
           );
         }
 
+        // Capture intervals.icu event ids before removing the rows so we can
+        // delete the corresponding calendar events afterwards.
+        const toDelete = await getTrainingWorkoutsForWeek(athleteId, weekParam);
+
         const deleted = await deleteTrainingWorkoutsForWeek(
           athleteId,
           weekParam,
         );
+
+        await deleteWorkoutsFromIcu(athleteId, toDelete);
 
         return jsonResponseWithCookies({ success: true, deleted }, newCookies);
       } catch (error) {

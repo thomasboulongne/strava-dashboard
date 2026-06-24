@@ -13,6 +13,9 @@ import {
   IconButton,
   Skeleton,
   Tooltip,
+  TextField,
+  Badge,
+  Link,
 } from "@radix-ui/themes";
 import {
   FiCopy,
@@ -25,7 +28,11 @@ import {
   getMcpKeys,
   createMcpKey,
   revokeMcpKey,
+  getIcuStatus,
+  saveIcuCredentials,
+  disconnectIcu,
   type McpApiKey,
+  type IcuStatus,
 } from "../lib/api";
 
 function CopyButton({ value }: { value: string }) {
@@ -61,6 +68,14 @@ export function Settings() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // intervals.icu (Garmin) sync state
+  const [icuStatus, setIcuStatus] = useState<IcuStatus | null>(null);
+  const [icuAthleteId, setIcuAthleteId] = useState("");
+  const [icuApiKey, setIcuApiKey] = useState("");
+  const [icuSaving, setIcuSaving] = useState(false);
+  const [icuError, setIcuError] = useState<string | null>(null);
+  const [icuMessage, setIcuMessage] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     getMcpKeys()
@@ -77,6 +92,56 @@ export function Settings() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    getIcuStatus()
+      .then((res) => {
+        if (!active) return;
+        setIcuStatus(res);
+        if (res.icuAthleteId) setIcuAthleteId(res.icuAthleteId);
+      })
+      .catch(() => {
+        /* status is best-effort; ignore load errors */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSaveIcu = async () => {
+    setIcuSaving(true);
+    setIcuError(null);
+    setIcuMessage(null);
+    try {
+      const res = await saveIcuCredentials(icuAthleteId.trim(), icuApiKey.trim());
+      setIcuStatus(res);
+      setIcuApiKey("");
+      setIcuMessage(
+        res.athleteName
+          ? `Connected as ${res.athleteName}.`
+          : "Connected to intervals.icu.",
+      );
+    } catch (err) {
+      setIcuError(
+        err instanceof Error ? err.message : "Failed to connect to intervals.icu",
+      );
+    } finally {
+      setIcuSaving(false);
+    }
+  };
+
+  const handleDisconnectIcu = async () => {
+    setIcuError(null);
+    setIcuMessage(null);
+    try {
+      await disconnectIcu();
+      setIcuStatus({ connected: false, icuAthleteId: null, updatedAt: null });
+      setIcuApiKey("");
+    } catch (err) {
+      setIcuError(err instanceof Error ? err.message : "Failed to disconnect");
+    }
+  };
 
   const handleCreate = async () => {
     setIsCreating(true);
@@ -217,6 +282,108 @@ export function Settings() {
             Available tools: list_activities, get_activity, get_activity_summary,
             get_athlete_zones, get_athlete_profile, search, fetch — all read-only.
           </Text>
+        </Flex>
+      </Card>
+
+      <Separator size="4" my="6" />
+
+      <Heading size="6" mb="1">
+        Garmin sync (intervals.icu)
+      </Heading>
+      <Text as="p" size="2" color="gray" mb="4">
+        Connect your intervals.icu account so planned workouts are pushed to its
+        calendar automatically whenever they change. intervals.icu forwards them
+        to Garmin Connect and your Edge.
+      </Text>
+
+      {icuError && (
+        <Callout.Root color="red" mb="4">
+          <Callout.Icon>
+            <FiAlertTriangle />
+          </Callout.Icon>
+          <Callout.Text>{icuError}</Callout.Text>
+        </Callout.Root>
+      )}
+      {icuMessage && (
+        <Callout.Root color="green" mb="4">
+          <Callout.Icon>
+            <FiCheck />
+          </Callout.Icon>
+          <Callout.Text>{icuMessage}</Callout.Text>
+        </Callout.Root>
+      )}
+
+      <Card>
+        <Flex direction="column" gap="3" p="2">
+          <Flex justify="between" align="center" gap="3" wrap="wrap">
+            <Heading size="3">intervals.icu credentials</Heading>
+            {icuStatus?.connected ? (
+              <Badge color="green">Connected</Badge>
+            ) : (
+              <Badge color="gray">Not connected</Badge>
+            )}
+          </Flex>
+
+          <Separator size="4" />
+
+          <Box>
+            <Text as="label" size="2" weight="medium">
+              Athlete ID
+            </Text>
+            <TextField.Root
+              placeholder="e.g. i123456"
+              value={icuAthleteId}
+              onChange={(e) => setIcuAthleteId(e.target.value)}
+              mt="1"
+            />
+          </Box>
+
+          <Box>
+            <Text as="label" size="2" weight="medium">
+              API key
+            </Text>
+            <TextField.Root
+              type="password"
+              placeholder={
+                icuStatus?.connected ? "•••••••• (enter to replace)" : "API key"
+              }
+              value={icuApiKey}
+              onChange={(e) => setIcuApiKey(e.target.value)}
+              mt="1"
+            />
+            <Text size="1" color="gray" mt="1" as="p">
+              Find both under{" "}
+              <Link href="https://intervals.icu/settings" target="_blank" rel="noreferrer">
+                intervals.icu → Settings → Developer
+              </Link>
+              .
+            </Text>
+          </Box>
+
+          <Flex gap="3" wrap="wrap">
+            <Button
+              onClick={handleSaveIcu}
+              disabled={icuSaving || !icuAthleteId.trim() || !icuApiKey.trim()}
+            >
+              {icuSaving ? "Connecting…" : icuStatus?.connected ? "Update" : "Connect"}
+            </Button>
+            {icuStatus?.connected && (
+              <Button color="red" variant="soft" onClick={handleDisconnectIcu}>
+                <FiTrash2 />
+                Disconnect
+              </Button>
+            )}
+          </Flex>
+
+          <Callout.Root color="amber" size="1">
+            <Callout.Icon>
+              <FiAlertTriangle />
+            </Callout.Icon>
+            <Callout.Text>
+              Your API key is stored securely and used only to upload workouts on
+              your behalf. Disconnect anytime to stop syncing.
+            </Callout.Text>
+          </Callout.Root>
         </Flex>
       </Card>
     </Container>

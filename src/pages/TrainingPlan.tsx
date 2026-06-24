@@ -1691,6 +1691,7 @@ export function TrainingPlan() {
     duration_input: '', // Store as string for flexible input
     intensity_target: '',
     notes: '',
+    workout_text: '', // intervals.icu workout DSL (pushed to Garmin)
   });
 
   // Data fetching
@@ -1820,6 +1821,7 @@ export function TrainingPlan() {
         : '',
       intensity_target: workout.intensity_target || '',
       notes: workout.notes || '',
+      workout_text: workout.workout_text || '',
     });
   };
 
@@ -1847,6 +1849,7 @@ export function TrainingPlan() {
           duration_target_minutes: durationMinutes,
           intensity_target: editForm.intensity_target.trim() || null,
           notes: editForm.notes.trim() || null,
+          workout_text: editForm.workout_text.trim() || null,
         },
       });
       setEditingWorkout(null);
@@ -2272,6 +2275,30 @@ export function TrainingPlan() {
                 style={{ minHeight: "80px" }}
               />
             </label>
+
+            {/* intervals.icu workout (Garmin sync) */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                intervals.icu workout (Garmin)
+              </Text>
+              <TextArea
+                value={editForm.workout_text}
+                onChange={(e) => setEditForm({ ...editForm, workout_text: e.target.value })}
+                placeholder={"One step per line, e.g.\n- 15m 55-75%\n- 3x10m 88-93% 5m 55%\n- 10m 55%"}
+                style={{ minHeight: "100px", fontFamily: "monospace" }}
+              />
+              <Text as="div" size="1" color="gray" mt="1">
+                intervals.icu text format pushed to Garmin. Leave blank to
+                auto-generate from the fields above.
+              </Text>
+            </label>
+
+            {/* Last sync error, if any */}
+            {editingWorkout?.icu_sync_error && (
+              <Text color="orange" size="1">
+                Last Garmin sync failed: {editingWorkout.icu_sync_error}
+              </Text>
+            )}
 
             {/* Error Display */}
             {updateMutation.error && (

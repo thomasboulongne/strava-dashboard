@@ -174,3 +174,33 @@ For pyramid workouts (e.g., 2min → 4min → 6min → 4min → 2min), you can e
 ```
 
 For pyramid workouts, the sequential pattern detection will identify the varying interval lengths.
+
+## intervals.icu / Garmin sync (workout text)
+
+When an intervals.icu account is connected (Settings → Garmin sync), every
+workout is automatically pushed to the intervals.icu calendar as a `Ride`
+workout whenever it is created, updated, or deleted. intervals.icu then
+forwards the workout to Garmin Connect / your Edge.
+
+Each workout has an optional `workout_text` field holding the workout in
+intervals.icu's text DSL. This is the **preferred** source for the upload:
+
+- One step per line, each beginning with `- `.
+- Duration uses `m` (minutes) or `s` (seconds); intensity is a `%FTP` value or
+  range.
+- Repeats use `Nx<duration> <intensity> <recovery-duration> <recovery-intensity>`.
+
+Example:
+
+```
+- 15m 55-75%
+- 3x10m 88-93% 5m 55%
+- 10m 55%
+```
+
+If `workout_text` is left blank, a best-effort structure is derived from the
+`Session` / `Intensity target` / `Duration` fields above (interval patterns are
+converted using the athlete's power zones, falling back to standard %FTP zone
+ranges). For precise control over what reaches Garmin, set `workout_text`
+explicitly (in the plan edit modal, or via the MCP `workout_text` argument on
+`upsert_training_plan` / `update_workout`).

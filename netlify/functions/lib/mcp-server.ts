@@ -33,6 +33,11 @@ import {
   dayOfWeek,
   localStartTime,
 } from "./metrics.js";
+import {
+  syncWorkoutToIcu,
+  syncWeekToIcu,
+  deleteWorkoutsFromIcu,
+} from "./icu-sync.js";
 
 const STRAVA_ACTIVITY_URL = "https://www.strava.com/activities/";
 
@@ -337,8 +342,10 @@ function serializeWorkout(w: DbTrainingWorkout) {
     duration_target_minutes: w.duration_target_minutes,
     intensity_target: w.intensity_target,
     notes: w.notes,
+    workout_text: w.workout_text,
     matched_activity_id: w.matched_activity_id,
     is_manually_linked: w.is_manually_linked,
+    icu_sync_error: w.icu_sync_error,
   };
 }
 
@@ -907,6 +914,13 @@ export function buildServer(athleteId: number): McpServer {
                 .optional()
                 .describe("Intensity target, e.g. 'Z2', '3x10min @ threshold', '200-220W'"),
               notes: z.string().nullable().optional(),
+              workout_text: z
+                .string()
+                .nullable()
+                .optional()
+                .describe(
+                  "intervals.icu workout description in its text DSL, one step per line, e.g. '- 15m 55-75%\\n- 3x10m 88-93% 5m 55%\\n- 10m 55%'. When set, this is pushed verbatim to intervals.icu/Garmin; otherwise a best-effort structure is derived from session_name/intensity_target.",
+                ),
             }),
           )
           .min(1)
@@ -937,7 +951,14 @@ export function buildServer(athleteId: number): McpServer {
 
         const effectiveMode = mode ?? "replace";
         if (effectiveMode === "replace") {
+          // Capture existing intervals.icu events before the rows (and their
+          // ids) are replaced, so we can remove the now-orphaned events.
+          const existing = await getTrainingWorkoutsForWeek(
+            athleteId,
+            week_start,
+          );
           await deleteTrainingWorkoutsForWeek(athleteId, week_start);
+          await deleteWorkoutsFromIcu(athleteId, existing);
         }
 
         const imported = await upsertTrainingWorkoutsBatch(
@@ -948,8 +969,12 @@ export function buildServer(athleteId: number): McpServer {
             duration_target_minutes: w.duration_target_minutes ?? null,
             intensity_target: w.intensity_target ?? null,
             notes: w.notes ?? null,
+            workout_text: w.workout_text ?? null,
           })),
         );
+
+        // Mirror the week to intervals.icu (best-effort, no-op if not connected).
+        await syncWeekToIcu(athleteId, week_start);
 
         const saved = await getTrainingWorkoutsForWeek(athleteId, week_start);
         return textResult({
@@ -976,10 +1001,17 @@ export function buildServer(athleteId: number): McpServer {
         duration_target_minutes: z.number().int().positive().nullable().optional(),
         intensity_target: z.string().nullable().optional(),
         notes: z.string().nullable().optional(),
+        workout_text: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            "intervals.icu workout description in its text DSL (one step per line). When set, pushed verbatim to intervals.icu/Garmin.",
+          ),
       },
       annotations: { readOnlyHint: false },
     },
-    async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes }) => {
+    async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes, workout_text }) => {
       try {
         const existing = await getTrainingWorkoutById(workout_id);
         if (!existing || Number(existing.athlete_id) !== athleteId) {
@@ -996,7 +1028,13 @@ export function buildServer(athleteId: number): McpServer {
               ? intensity_target
               : existing.intensity_target,
           notes: notes !== undefined ? notes : existing.notes,
+          workout_text:
+            workout_text !== undefined ? workout_text : existing.workout_text,
         });
+
+        // Mirror the change to intervals.icu (best-effort).
+        await syncWorkoutToIcu(athleteId, updated);
+
         return textResult({ workout: serializeWorkout(updated) });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
@@ -1022,7 +1060,10 @@ export function buildServer(athleteId: number): McpServer {
         if (!DATE_RE.test(week_start)) {
           return errorResult("week_start must be YYYY-MM-DD");
         }
+        // Capture intervals.icu event ids before removing the rows.
+        const toDelete = await getTrainingWorkoutsForWeek(athleteId, week_start);
         const deleted = await deleteTrainingWorkoutsForWeek(athleteId, week_start);
+        await deleteWorkoutsFromIcu(athleteId, toDelete);
         return textResult({ week_start, deleted });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");

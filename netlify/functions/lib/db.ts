@@ -114,6 +114,11 @@ export interface DbTrainingWorkout {
   notes: string | null;
   matched_activity_id: number | null;
   is_manually_linked: boolean;
+  // intervals.icu structured workout text (DSL) + sync bookkeeping
+  workout_text: string | null;
+  icu_event_id: number | null;
+  icu_sync_error: string | null;
+  icu_synced_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -151,6 +156,15 @@ export interface DbMcpApiKey {
   label: string | null;
   created_at: Date;
   last_used_at: Date | null;
+}
+
+// Per-user intervals.icu credentials (used to push workouts to Garmin)
+export interface DbIntervalsIcuCredentials {
+  athlete_id: number;
+  icu_athlete_id: string;
+  api_key: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 // Schema initialization - run once to set up tables
@@ -277,6 +291,15 @@ export async function initializeSchema() {
     )
   `;
 
+  // intervals.icu sync columns (added incrementally for existing deployments)
+  await sql`
+    ALTER TABLE training_workouts
+      ADD COLUMN IF NOT EXISTS workout_text TEXT,
+      ADD COLUMN IF NOT EXISTS icu_event_id BIGINT,
+      ADD COLUMN IF NOT EXISTS icu_sync_error TEXT,
+      ADD COLUMN IF NOT EXISTS icu_synced_at TIMESTAMPTZ
+  `;
+
   await sql`
     CREATE INDEX IF NOT EXISTS idx_training_workouts_athlete_id ON training_workouts(athlete_id)
   `;
@@ -342,6 +365,17 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_mcp_api_keys_athlete ON mcp_api_keys(athlete_id)
+  `;
+
+  // intervals.icu credentials - per-user API key used to push workouts to Garmin
+  await sql`
+    CREATE TABLE IF NOT EXISTS intervals_icu_credentials (
+      athlete_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      icu_athlete_id TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
   `;
 
   return { success: true };
@@ -925,24 +959,26 @@ export async function upsertTrainingWorkout(workout: {
   duration_target_minutes: number | null;
   intensity_target: string | null;
   notes: string | null;
+  workout_text?: string | null;
 }): Promise<DbTrainingWorkout> {
   const sql = getDb();
 
   const result = await sql`
     INSERT INTO training_workouts (
       athlete_id, workout_date, session_name, duration_target_minutes,
-      intensity_target, notes, updated_at
+      intensity_target, notes, workout_text, updated_at
     )
     VALUES (
       ${workout.athlete_id}, ${workout.workout_date}, ${workout.session_name},
       ${workout.duration_target_minutes}, ${workout.intensity_target},
-      ${workout.notes}, NOW()
+      ${workout.notes}, ${workout.workout_text ?? null}, NOW()
     )
     ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
       session_name = EXCLUDED.session_name,
       duration_target_minutes = EXCLUDED.duration_target_minutes,
       intensity_target = EXCLUDED.intensity_target,
       notes = EXCLUDED.notes,
+      workout_text = EXCLUDED.workout_text,
       updated_at = NOW()
     RETURNING *
   `;
@@ -957,9 +993,14 @@ export async function updateTrainingWorkout(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    workout_text?: string | null;
   },
 ): Promise<DbTrainingWorkout> {
   const sql = getDb();
+
+  // workout_text is optional: only overwrite it when explicitly provided so
+  // callers that don't manage the intervals.icu text leave it untouched.
+  const setWorkoutText = updates.workout_text !== undefined;
 
   const result = await sql`
     UPDATE training_workouts
@@ -967,12 +1008,29 @@ export async function updateTrainingWorkout(
         duration_target_minutes = ${updates.duration_target_minutes},
         intensity_target = ${updates.intensity_target},
         notes = ${updates.notes},
+        workout_text = CASE WHEN ${setWorkoutText} THEN ${updates.workout_text ?? null} ELSE workout_text END,
         updated_at = NOW()
     WHERE id = ${workoutId}
     RETURNING *
   `;
 
   return result[0] as DbTrainingWorkout;
+}
+
+// Persist the result of an intervals.icu sync attempt for a workout.
+export async function updateWorkoutIcuState(
+  workoutId: number,
+  state: { icu_event_id?: number | null; icu_sync_error: string | null },
+): Promise<void> {
+  const sql = getDb();
+  const setEventId = state.icu_event_id !== undefined;
+  await sql`
+    UPDATE training_workouts
+    SET icu_event_id = CASE WHEN ${setEventId} THEN ${state.icu_event_id ?? null} ELSE icu_event_id END,
+        icu_sync_error = ${state.icu_sync_error},
+        icu_synced_at = NOW()
+    WHERE id = ${workoutId}
+  `;
 }
 
 export async function upsertTrainingWorkoutsBatch(
@@ -983,33 +1041,31 @@ export async function upsertTrainingWorkoutsBatch(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    workout_text?: string | null;
   }>,
 ): Promise<number> {
   if (workouts.length === 0) return 0;
 
   const sql = getDb();
 
+  const quote = (v: string) => `'${v.replace(/'/g, "''")}'`;
+
   // Build values for batch insert
   const values = workouts
     .map(
       (w) =>
-        `(${w.athlete_id}, '${w.workout_date}', '${w.session_name.replace(
-          /'/g,
-          "''",
-        )}', ${w.duration_target_minutes ?? "NULL"}, ${
-          w.intensity_target
-            ? `'${w.intensity_target.replace(/'/g, "''")}'`
-            : "NULL"
-        }, ${
-          w.notes ? `'${w.notes.replace(/'/g, "''")}'` : "NULL"
-        }, NOW(), NOW())`,
+        `(${w.athlete_id}, '${w.workout_date}', ${quote(w.session_name)}, ${
+          w.duration_target_minutes ?? "NULL"
+        }, ${w.intensity_target ? quote(w.intensity_target) : "NULL"}, ${
+          w.notes ? quote(w.notes) : "NULL"
+        }, ${w.workout_text ? quote(w.workout_text) : "NULL"}, NOW(), NOW())`,
     )
     .join(", ");
 
   await sql`
     INSERT INTO training_workouts (
       athlete_id, workout_date, session_name, duration_target_minutes,
-      intensity_target, notes, created_at, updated_at
+      intensity_target, notes, workout_text, created_at, updated_at
     )
     VALUES ${sql.unsafe(values)}
     ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
@@ -1017,6 +1073,7 @@ export async function upsertTrainingWorkoutsBatch(
       duration_target_minutes = EXCLUDED.duration_target_minutes,
       intensity_target = EXCLUDED.intensity_target,
       notes = EXCLUDED.notes,
+      workout_text = EXCLUDED.workout_text,
       updated_at = NOW()
   `;
 
@@ -1409,4 +1466,44 @@ export async function deleteApiKey(
 export async function touchApiKey(key: string): Promise<void> {
   const sql = getDb();
   await sql`UPDATE mcp_api_keys SET last_used_at = NOW() WHERE key = ${key}`;
+}
+
+// intervals.icu credentials operations
+
+export async function getIcuCredentials(
+  athleteId: number,
+): Promise<DbIntervalsIcuCredentials | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM intervals_icu_credentials WHERE athlete_id = ${athleteId} LIMIT 1
+  `;
+  return (result[0] as DbIntervalsIcuCredentials) || null;
+}
+
+export async function upsertIcuCredentials(
+  athleteId: number,
+  icuAthleteId: string,
+  apiKey: string,
+): Promise<DbIntervalsIcuCredentials> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO intervals_icu_credentials (athlete_id, icu_athlete_id, api_key, updated_at)
+    VALUES (${athleteId}, ${icuAthleteId}, ${apiKey}, NOW())
+    ON CONFLICT (athlete_id) DO UPDATE SET
+      icu_athlete_id = EXCLUDED.icu_athlete_id,
+      api_key = EXCLUDED.api_key,
+      updated_at = NOW()
+    RETURNING *
+  `;
+  return result[0] as DbIntervalsIcuCredentials;
+}
+
+export async function deleteIcuCredentials(athleteId: number): Promise<boolean> {
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM intervals_icu_credentials
+    WHERE athlete_id = ${athleteId}
+    RETURNING athlete_id
+  `;
+  return result.length > 0;
 }

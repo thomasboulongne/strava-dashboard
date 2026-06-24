@@ -89,8 +89,8 @@ The connector key is read-write: these tools modify your data. They carry MCP
 annotations (`readOnlyHint: false`, `destructiveHint` where relevant), so ChatGPT
 asks for confirmation before calling them. Every write is scoped to the key's athlete.
 
-- `upsert_training_plan` — create/replace a week's plan from structured workouts (`mode: replace | merge`)
-- `update_workout` — edit a single workout's fields by id
+- `upsert_training_plan` — create/replace a week's plan from structured workouts (`mode: replace | merge`); accepts an optional `workout_text` (intervals.icu DSL) per workout for Garmin sync
+- `update_workout` — edit a single workout's fields by id (including `workout_text`)
 - `delete_training_plan` — clear a week's plan (destructive)
 - `link_activity_to_workout` / `unlink_activity_from_workout` — manage activity links
 - `upsert_weekly_report` — save/replace the weekly report (title + markdown)
@@ -112,6 +112,39 @@ npm run dev:netlify
 npx @modelcontextprotocol/inspector
 # Point the inspector at http://localhost:8888/mcp (Streamable HTTP)
 ```
+
+## Garmin sync via intervals.icu
+
+Planned workouts can be pushed automatically to Garmin. Connect an
+[intervals.icu](https://intervals.icu) account (which is linked to Garmin
+Connect) and every workout is mirrored to the intervals.icu calendar as a
+`Ride` workout whenever it is created, updated, or deleted — intervals.icu then
+forwards it to Garmin Connect and your Edge.
+
+### Connect your account
+
+1. In intervals.icu, go to **Settings → Developer** and copy your **Athlete ID**
+   (e.g. `i123456`) and **API key**.
+2. On the dashboard **Settings** page, open **Garmin sync (intervals.icu)**,
+   paste both, and click **Connect**. The credentials are validated against
+   intervals.icu and stored per-user.
+
+Credentials are stored per athlete in the `intervals_icu_credentials` table; no
+environment variables are required. Disconnect anytime from the same page.
+
+### Workout format
+
+Each workout has an optional `workout_text` field (intervals.icu text DSL, one
+step per line, e.g. `- 3x10m 88-93% 5m 55%`). When set it is uploaded verbatim;
+otherwise a best-effort structure is derived from the session/intensity/duration
+fields. See [TRAINING_PLAN_INSTRUCTIONS.md](TRAINING_PLAN_INSTRUCTIONS.md) for
+the full format.
+
+### Schema migration
+
+The new columns (`training_workouts.workout_text` etc.) and the
+`intervals_icu_credentials` table are created idempotently by
+`initializeSchema()`. After deploying, hit `/api/init-db` once to apply them.
 
 ## Tech Stack
 

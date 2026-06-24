@@ -425,6 +425,7 @@ export async function updateTrainingWorkout(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    workout_text?: string | null;
   },
 ): Promise<LinkActivityResponse> {
   return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}`, {
@@ -473,6 +474,32 @@ export async function revokeMcpKey(key: string): Promise<{ success: boolean }> {
     `/mcp-key?key=${encodeURIComponent(key)}`,
     { method: "DELETE" },
   );
+}
+
+// intervals.icu (Garmin) sync endpoints
+export interface IcuStatus {
+  connected: boolean;
+  icuAthleteId: string | null;
+  updatedAt: string | null;
+  athleteName?: string | null;
+}
+
+export async function getIcuStatus(): Promise<IcuStatus> {
+  return fetchApi<IcuStatus>("/intervals-icu");
+}
+
+export async function saveIcuCredentials(
+  icuAthleteId: string,
+  apiKey: string,
+): Promise<IcuStatus> {
+  return fetchApi<IcuStatus>("/intervals-icu", {
+    method: "PUT",
+    body: JSON.stringify({ icuAthleteId, apiKey }),
+  });
+}
+
+export async function disconnectIcu(): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>("/intervals-icu", { method: "DELETE" });
 }
 
 export { ApiError };

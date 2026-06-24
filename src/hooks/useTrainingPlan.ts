@@ -210,6 +210,7 @@ export function useUpdateWorkout() {
         duration_target_minutes: number | null;
         intensity_target: string | null;
         notes: string | null;
+        workout_text?: string | null;
       };
     }) => updateTrainingWorkout(workoutId, updates),
     onSuccess: (data) => {

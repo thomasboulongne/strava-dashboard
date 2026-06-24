@@ -303,6 +303,10 @@ export interface TrainingWorkout {
   notes: string | null;
   matched_activity_id: number | null;
   is_manually_linked: boolean;
+  // intervals.icu structured workout text + last sync error (Garmin sync)
+  workout_text: string | null;
+  icu_event_id: number | null;
+  icu_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
