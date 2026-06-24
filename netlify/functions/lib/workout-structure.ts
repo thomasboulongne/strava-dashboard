@@ -167,3 +167,16 @@ export function flattenSets(
   }
   return expected;
 }
+
+/**
+ * Whether a workout has interval structure worth pushing as a Garmin workout.
+ * Plain steady/endurance rides (no repeats) return false. The DSL workout_text
+ * counts only when it actually contains interval repeats.
+ */
+export function hasIntervalStructure(workout: {
+  workout_text: string | null;
+  session_name: string;
+  intensity_target: string | null;
+}): boolean {
+  return getWorkoutSets(workout).length > 0;
+}

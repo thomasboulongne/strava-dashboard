@@ -13,12 +13,12 @@ import {
 } from "./db.js";
 import {
   upsertWorkoutEvent,
-  upsertWorkoutEventsBulk,
   deleteWorkoutEvent,
   workoutToIcuDescription,
   type IcuCredentials,
   type SerializeOptions,
 } from "./intervals-icu.js";
+import { hasIntervalStructure } from "./workout-structure.js";
 
 function toYmd(workoutDate: Date | string): string {
   return workoutDate instanceof Date
@@ -58,6 +58,23 @@ async function pushOne(
   workout: DbTrainingWorkout,
 ): Promise<void> {
   try {
+    // Only push workouts that have interval structure. A plain steady/endurance
+    // ride needs no Garmin workout file; if it previously had one (e.g. it was
+    // edited from intervals to steady), remove that stale event.
+    if (!hasIntervalStructure(workout)) {
+      if (workout.icu_event_id != null) {
+        console.log(
+          `[icu-sync] workout ${workout.id} has no intervals — removing stale event`,
+        );
+        await deleteWorkoutEvent(creds, Number(workout.icu_event_id));
+        await updateWorkoutIcuState(workout.id, {
+          icu_event_id: null,
+          icu_sync_error: null,
+        });
+      }
+      return;
+    }
+
     const description = workoutToIcuDescription(workout, opts);
     const eventId = await upsertWorkoutEvent(creds, {
       workoutId: workout.id,
@@ -88,8 +105,9 @@ export async function syncWorkoutToIcu(
   await pushOne(ctx.creds, ctx.opts, workout);
 }
 
-// Push every workout in a week in ONE bulk request, then persist the resulting
-// event ids / errors. Used after a markdown import or a bulk plan upsert.
+// Push every workout in a week, one at a time. Single upserts reliably return
+// each event id (so it's stored for later deletion), and structure-less rides
+// are skipped. Runs in the background function, so sequential is fine.
 export async function syncWeekToIcu(
   athleteId: number,
   weekStart: string,
@@ -102,39 +120,11 @@ export async function syncWeekToIcu(
     return;
   }
 
-  const inputs = workouts.map((w) => ({
-    workoutId: w.id,
-    dateYmd: toYmd(w.workout_date),
-    name: w.session_name,
-    description: workoutToIcuDescription(w, ctx.opts),
-  }));
-
   console.log(
-    `[icu-sync] week ${weekStart}: bulk upserting ${inputs.length} workout(s)`,
+    `[icu-sync] week ${weekStart}: syncing ${workouts.length} workout(s)`,
   );
-  try {
-    const idByWorkout = await upsertWorkoutEventsBulk(ctx.creds, inputs);
-    console.log(
-      `[icu-sync] week ${weekStart}: bulk upsert ok, ${idByWorkout.size} event id(s) returned`,
-    );
-    await Promise.all(
-      workouts.map((w) =>
-        updateWorkoutIcuState(w.id, {
-          icu_event_id: idByWorkout.get(w.id),
-          icu_sync_error: null,
-        }).catch(() => undefined),
-      ),
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown sync error";
-    console.error(`[icu-sync] week ${weekStart} bulk sync failed:`, message);
-    await Promise.all(
-      workouts.map((w) =>
-        updateWorkoutIcuState(w.id, { icu_sync_error: message }).catch(
-          () => undefined,
-        ),
-      ),
-    );
+  for (const workout of workouts) {
+    await pushOne(ctx.creds, ctx.opts, workout);
   }
 }
 
