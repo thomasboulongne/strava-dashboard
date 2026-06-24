@@ -114,6 +114,9 @@ export interface DbTrainingWorkout {
   notes: string | null;
   matched_activity_id: number | null;
   is_manually_linked: boolean;
+  // Ordering within a day (multiple workouts per day) + optional time label
+  day_order: number;
+  time_of_day: string | null;
   // intervals.icu structured workout text (DSL) + sync bookkeeping
   workout_text: string | null;
   icu_event_id: number | null;
@@ -273,7 +276,8 @@ export async function initializeSchema() {
     )
   `;
 
-  // Training workouts table - stores coach's training plan
+  // Training workouts table - stores coach's training plan.
+  // Multiple workouts per day are allowed (ordered by day_order).
   await sql`
     CREATE TABLE IF NOT EXISTS training_workouts (
       id SERIAL PRIMARY KEY,
@@ -283,17 +287,26 @@ export async function initializeSchema() {
       duration_target_minutes INTEGER,
       intensity_target TEXT,
       notes TEXT,
+      day_order INTEGER NOT NULL DEFAULT 0,
+      time_of_day TEXT,
       matched_activity_id BIGINT REFERENCES activities(id) ON DELETE SET NULL,
       is_manually_linked BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(athlete_id, workout_date)
+      updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
 
-  // intervals.icu sync columns (added incrementally for existing deployments)
+  // Drop the legacy one-workout-per-day constraint (multiple per day allowed).
   await sql`
     ALTER TABLE training_workouts
+      DROP CONSTRAINT IF EXISTS training_workouts_athlete_id_workout_date_key
+  `;
+
+  // Incremental columns for existing deployments (ordering + intervals.icu sync)
+  await sql`
+    ALTER TABLE training_workouts
+      ADD COLUMN IF NOT EXISTS day_order INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS time_of_day TEXT,
       ADD COLUMN IF NOT EXISTS workout_text TEXT,
       ADD COLUMN IF NOT EXISTS icu_event_id BIGINT,
       ADD COLUMN IF NOT EXISTS icu_sync_error TEXT,
@@ -952,13 +965,16 @@ export async function zonesNeedRefresh(athleteId: number): Promise<boolean> {
 }
 
 // Training workout operations
-export async function upsertTrainingWorkout(workout: {
+
+// Create a single workout, appended after any existing workouts that day.
+export async function createTrainingWorkout(workout: {
   athlete_id: number;
   workout_date: string; // YYYY-MM-DD format
   session_name: string;
   duration_target_minutes: number | null;
   intensity_target: string | null;
   notes: string | null;
+  time_of_day?: string | null;
   workout_text?: string | null;
 }): Promise<DbTrainingWorkout> {
   const sql = getDb();
@@ -966,20 +982,21 @@ export async function upsertTrainingWorkout(workout: {
   const result = await sql`
     INSERT INTO training_workouts (
       athlete_id, workout_date, session_name, duration_target_minutes,
-      intensity_target, notes, workout_text, updated_at
+      intensity_target, notes, time_of_day, workout_text, day_order, updated_at
     )
     VALUES (
       ${workout.athlete_id}, ${workout.workout_date}, ${workout.session_name},
       ${workout.duration_target_minutes}, ${workout.intensity_target},
-      ${workout.notes}, ${workout.workout_text ?? null}, NOW()
+      ${workout.notes}, ${workout.time_of_day ?? null},
+      ${workout.workout_text ?? null},
+      COALESCE(
+        (SELECT MAX(day_order) + 1 FROM training_workouts
+          WHERE athlete_id = ${workout.athlete_id}
+            AND workout_date = ${workout.workout_date}),
+        0
+      ),
+      NOW()
     )
-    ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
-      session_name = EXCLUDED.session_name,
-      duration_target_minutes = EXCLUDED.duration_target_minutes,
-      intensity_target = EXCLUDED.intensity_target,
-      notes = EXCLUDED.notes,
-      workout_text = EXCLUDED.workout_text,
-      updated_at = NOW()
     RETURNING *
   `;
 
@@ -993,14 +1010,16 @@ export async function updateTrainingWorkout(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    time_of_day?: string | null;
     workout_text?: string | null;
   },
 ): Promise<DbTrainingWorkout> {
   const sql = getDb();
 
-  // workout_text is optional: only overwrite it when explicitly provided so
-  // callers that don't manage the intervals.icu text leave it untouched.
+  // workout_text / time_of_day are optional: only overwrite when explicitly
+  // provided so callers that don't manage them leave the stored value intact.
   const setWorkoutText = updates.workout_text !== undefined;
+  const setTimeOfDay = updates.time_of_day !== undefined;
 
   const result = await sql`
     UPDATE training_workouts
@@ -1008,6 +1027,7 @@ export async function updateTrainingWorkout(
         duration_target_minutes = ${updates.duration_target_minutes},
         intensity_target = ${updates.intensity_target},
         notes = ${updates.notes},
+        time_of_day = CASE WHEN ${setTimeOfDay} THEN ${updates.time_of_day ?? null} ELSE time_of_day END,
         workout_text = CASE WHEN ${setWorkoutText} THEN ${updates.workout_text ?? null} ELSE workout_text END,
         updated_at = NOW()
     WHERE id = ${workoutId}
@@ -1033,7 +1053,10 @@ export async function updateWorkoutIcuState(
   `;
 }
 
-export async function upsertTrainingWorkoutsBatch(
+// Insert a batch of workouts (no upsert: duplicate dates are allowed). Each
+// workout's day_order is assigned by its position within its date, preserving
+// the caller's ordering. Returns the inserted rows (with ids).
+export async function insertTrainingWorkoutsBatch(
   workouts: Array<{
     athlete_id: number;
     workout_date: string;
@@ -1041,43 +1064,42 @@ export async function upsertTrainingWorkoutsBatch(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    time_of_day?: string | null;
     workout_text?: string | null;
   }>,
-): Promise<number> {
-  if (workouts.length === 0) return 0;
+): Promise<DbTrainingWorkout[]> {
+  if (workouts.length === 0) return [];
 
   const sql = getDb();
 
   const quote = (v: string) => `'${v.replace(/'/g, "''")}'`;
+  const orderByDate = new Map<string, number>();
 
-  // Build values for batch insert
   const values = workouts
-    .map(
-      (w) =>
-        `(${w.athlete_id}, '${w.workout_date}', ${quote(w.session_name)}, ${
-          w.duration_target_minutes ?? "NULL"
-        }, ${w.intensity_target ? quote(w.intensity_target) : "NULL"}, ${
-          w.notes ? quote(w.notes) : "NULL"
-        }, ${w.workout_text ? quote(w.workout_text) : "NULL"}, NOW(), NOW())`,
-    )
+    .map((w) => {
+      const order = orderByDate.get(w.workout_date) ?? 0;
+      orderByDate.set(w.workout_date, order + 1);
+      return `(${w.athlete_id}, '${w.workout_date}', ${quote(
+        w.session_name,
+      )}, ${w.duration_target_minutes ?? "NULL"}, ${
+        w.intensity_target ? quote(w.intensity_target) : "NULL"
+      }, ${w.notes ? quote(w.notes) : "NULL"}, ${
+        w.time_of_day ? quote(w.time_of_day) : "NULL"
+      }, ${w.workout_text ? quote(w.workout_text) : "NULL"}, ${order}, NOW(), NOW())`;
+    })
     .join(", ");
 
-  await sql`
+  const result = await sql`
     INSERT INTO training_workouts (
       athlete_id, workout_date, session_name, duration_target_minutes,
-      intensity_target, notes, workout_text, created_at, updated_at
+      intensity_target, notes, time_of_day, workout_text, day_order,
+      created_at, updated_at
     )
     VALUES ${sql.unsafe(values)}
-    ON CONFLICT (athlete_id, workout_date) DO UPDATE SET
-      session_name = EXCLUDED.session_name,
-      duration_target_minutes = EXCLUDED.duration_target_minutes,
-      intensity_target = EXCLUDED.intensity_target,
-      notes = EXCLUDED.notes,
-      workout_text = EXCLUDED.workout_text,
-      updated_at = NOW()
+    RETURNING *
   `;
 
-  return workouts.length;
+  return result as DbTrainingWorkout[];
 }
 
 export async function getTrainingWorkoutsForWeek(
@@ -1099,7 +1121,7 @@ export async function getTrainingWorkoutsForWeek(
     WHERE athlete_id = ${athleteId}
       AND workout_date >= ${weekStart}
       AND workout_date < ${weekEnd}
-    ORDER BY workout_date ASC
+    ORDER BY workout_date ASC, day_order ASC, id ASC
   `;
 
   return result as DbTrainingWorkout[];
@@ -1169,6 +1191,34 @@ export async function deleteTrainingWorkoutsForWeek(
   `;
 
   return result.length;
+}
+
+// Delete all workouts on the given dates; returns the deleted rows so callers
+// can clean up the corresponding intervals.icu events.
+export async function deleteTrainingWorkoutsForDays(
+  athleteId: number,
+  dates: string[],
+): Promise<DbTrainingWorkout[]> {
+  if (dates.length === 0) return [];
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM training_workouts
+    WHERE athlete_id = ${athleteId}
+      AND workout_date = ANY(${dates})
+    RETURNING *
+  `;
+  return result as DbTrainingWorkout[];
+}
+
+// Delete a single workout by id; returns the deleted row (for event cleanup).
+export async function deleteTrainingWorkoutById(
+  workoutId: number,
+): Promise<DbTrainingWorkout | null> {
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM training_workouts WHERE id = ${workoutId} RETURNING *
+  `;
+  return (result[0] as DbTrainingWorkout) || null;
 }
 
 // Get activities for a specific date (for matching)

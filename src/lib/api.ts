@@ -425,12 +425,42 @@ export async function updateTrainingWorkout(
     duration_target_minutes: number | null;
     intensity_target: string | null;
     notes: string | null;
+    time_of_day?: string | null;
     workout_text?: string | null;
   },
 ): Promise<LinkActivityResponse> {
   return fetchApi<LinkActivityResponse>(`/training-plans/${workoutId}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * Create a single workout (allows multiple per day)
+ */
+export async function createTrainingWorkout(workout: {
+  workout_date: string;
+  session_name: string;
+  duration_target_minutes: number | null;
+  intensity_target: string | null;
+  notes: string | null;
+  time_of_day?: string | null;
+  workout_text?: string | null;
+}): Promise<LinkActivityResponse> {
+  return fetchApi<LinkActivityResponse>("/training-plans/workout", {
+    method: "POST",
+    body: JSON.stringify(workout),
+  });
+}
+
+/**
+ * Delete a single workout by id
+ */
+export async function deleteTrainingWorkout(
+  workoutId: number,
+): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(`/training-plans/${workoutId}`, {
+    method: "DELETE",
   });
 }
 

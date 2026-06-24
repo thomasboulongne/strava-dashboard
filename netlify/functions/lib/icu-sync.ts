@@ -55,12 +55,12 @@ async function loadContext(
 async function pushOne(
   creds: IcuCredentials,
   opts: SerializeOptions,
-  athleteId: number,
   workout: DbTrainingWorkout,
 ): Promise<void> {
   try {
     const description = workoutToIcuDescription(workout, opts);
-    const eventId = await upsertWorkoutEvent(creds, athleteId, {
+    const eventId = await upsertWorkoutEvent(creds, {
+      workoutId: workout.id,
       dateYmd: toYmd(workout.workout_date),
       name: workout.session_name,
       description,
@@ -85,7 +85,7 @@ export async function syncWorkoutToIcu(
 ): Promise<void> {
   const ctx = await loadContext(athleteId);
   if (!ctx) return;
-  await pushOne(ctx.creds, ctx.opts, athleteId, workout);
+  await pushOne(ctx.creds, ctx.opts, workout);
 }
 
 // Push every workout in a week in ONE bulk request, then persist the resulting
@@ -103,6 +103,7 @@ export async function syncWeekToIcu(
   }
 
   const inputs = workouts.map((w) => ({
+    workoutId: w.id,
     dateYmd: toYmd(w.workout_date),
     name: w.session_name,
     description: workoutToIcuDescription(w, ctx.opts),
@@ -112,14 +113,14 @@ export async function syncWeekToIcu(
     `[icu-sync] week ${weekStart}: bulk upserting ${inputs.length} workout(s)`,
   );
   try {
-    const idByDate = await upsertWorkoutEventsBulk(ctx.creds, athleteId, inputs);
+    const idByWorkout = await upsertWorkoutEventsBulk(ctx.creds, inputs);
     console.log(
-      `[icu-sync] week ${weekStart}: bulk upsert ok, ${idByDate.size} event id(s) returned`,
+      `[icu-sync] week ${weekStart}: bulk upsert ok, ${idByWorkout.size} event id(s) returned`,
     );
     await Promise.all(
       workouts.map((w) =>
         updateWorkoutIcuState(w.id, {
-          icu_event_id: idByDate.get(toYmd(w.workout_date)),
+          icu_event_id: idByWorkout.get(w.id),
           icu_sync_error: null,
         }).catch(() => undefined),
       ),

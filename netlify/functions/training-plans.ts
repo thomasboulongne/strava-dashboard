@@ -10,11 +10,14 @@ import {
 import {
   getTrainingWorkoutsForWeek,
   getTrainingWorkoutById,
-  upsertTrainingWorkoutsBatch,
+  insertTrainingWorkoutsBatch,
+  createTrainingWorkout,
   updateTrainingWorkout,
   linkActivityToWorkout,
   unlinkActivityFromWorkout,
   deleteTrainingWorkoutsForWeek,
+  deleteTrainingWorkoutsForDays,
+  deleteTrainingWorkoutById,
   getActivitiesForDateRange,
   getActivityStreams,
   getAthleteZones,
@@ -160,6 +163,17 @@ function autoMatchActivities(
     activitiesByDate.get(date)!.push(activity);
   }
 
+  // Track activities already consumed by a match so two same-day workouts
+  // don't both grab the same activity.
+  const usedActivityIds = new Set<number>();
+
+  // Reserve manually-linked activities first, before auto-matching.
+  for (const workout of workouts) {
+    if (workout.is_manually_linked && workout.matched_activity_id) {
+      usedActivityIds.add(Number(workout.matched_activity_id));
+    }
+  }
+
   // Match each workout
   for (const workout of workouts) {
     // Skip if manually linked
@@ -173,7 +187,9 @@ function autoMatchActivities(
 
     const workoutDate = formatDateString(workout.workout_date);
 
-    const dayActivities = activitiesByDate.get(workoutDate) || [];
+    const dayActivities = (activitiesByDate.get(workoutDate) || []).filter(
+      (a) => !usedActivityIds.has(a.id),
+    );
 
     if (dayActivities.length === 0) {
       matches.set(workout.id, null);
@@ -226,6 +242,7 @@ function autoMatchActivities(
       }
     }
 
+    if (bestMatch) usedActivityIds.add(bestMatch.id);
     matches.set(workout.id, bestMatch);
   }
 
@@ -1791,6 +1808,7 @@ export default async function handler(request: Request, _context: Context) {
           duration_target_minutes,
           intensity_target,
           notes,
+          time_of_day,
           workout_text,
         } = body;
 
@@ -1835,12 +1853,15 @@ export default async function handler(request: Request, _context: Context) {
           }
         }
 
-        // Update workout (only overwrite workout_text when the field is sent)
+        // Update workout (only overwrite optional fields when sent)
         const updatedWorkout = await updateTrainingWorkout(workoutId, {
           session_name: session_name.trim(),
           duration_target_minutes: durationMinutes,
           intensity_target: intensity_target || null,
           notes: notes || null,
+          ...(time_of_day !== undefined
+            ? { time_of_day: time_of_day || null }
+            : {}),
           ...(workout_text !== undefined
             ? { workout_text: workout_text || null }
             : {}),
@@ -2024,6 +2045,64 @@ export default async function handler(request: Request, _context: Context) {
     });
   }
 
+  // POST /api/training-plans/workout - create a single workout (for the UI's
+  // per-day "add workout" button). Allows multiple workouts on the same day.
+  if (request.method === "POST" && lastPart === "workout") {
+    return withAuth(request, async (req, _accessToken, newCookies) => {
+      try {
+        const cookieHeader = req.headers.get("cookie");
+        const { athleteId } = parseTokensFromCookies(cookieHeader);
+        if (!athleteId) {
+          return jsonResponse({ error: "No athlete ID" }, 400);
+        }
+
+        const body = await req.json();
+        const {
+          workout_date,
+          session_name,
+          duration_target_minutes,
+          intensity_target,
+          notes,
+          time_of_day,
+          workout_text,
+        } = body;
+
+        if (!workout_date || !/^\d{4}-\d{2}-\d{2}$/.test(workout_date)) {
+          return jsonResponse({ error: "workout_date (YYYY-MM-DD) required" }, 400);
+        }
+        if (!session_name || typeof session_name !== "string" || !session_name.trim()) {
+          return jsonResponse({ error: "Session name is required" }, 400);
+        }
+
+        let durationMinutes: number | null = null;
+        if (duration_target_minutes !== null && duration_target_minutes !== undefined) {
+          durationMinutes = parseDuration(duration_target_minutes);
+          if (durationMinutes === null) {
+            return jsonResponse({ error: "Invalid duration format" }, 400);
+          }
+        }
+
+        const created = await createTrainingWorkout({
+          athlete_id: athleteId,
+          workout_date,
+          session_name: session_name.trim(),
+          duration_target_minutes: durationMinutes,
+          intensity_target: intensity_target || null,
+          notes: notes || null,
+          time_of_day: time_of_day || null,
+          workout_text: workout_text || null,
+        });
+
+        await dispatchSyncWeekForDate(athleteId, formatDateString(created.workout_date));
+
+        return jsonResponseWithCookies({ success: true, workout: created }, newCookies);
+      } catch (error) {
+        console.error("POST create workout error:", error);
+        return jsonResponse({ error: "Failed to create workout" }, 500);
+      }
+    });
+  }
+
   // POST: Import training plan from markdown
   if (request.method === "POST") {
     return withAuth(request, async (req, _accessToken, newCookies) => {
@@ -2061,8 +2140,11 @@ export default async function handler(request: Request, _context: Context) {
           : new Date();
         const dbWorkouts = convertToDbWorkouts(parsed, athleteId, refDate);
 
-        // Upsert workouts
-        const count = await upsertTrainingWorkoutsBatch(dbWorkouts);
+        // Replace any existing workouts on the imported days, then insert.
+        const days = [...new Set(dbWorkouts.map((w) => w.workout_date))];
+        const removed = await deleteTrainingWorkoutsForDays(athleteId, days);
+        await dispatchDeleteEvents(athleteId, eventIdsOf(removed));
+        const inserted = await insertTrainingWorkoutsBatch(dbWorkouts);
 
         // Push the affected week(s) to intervals.icu (best-effort, no-op if
         // the athlete hasn't connected their account).
@@ -2076,8 +2158,8 @@ export default async function handler(request: Request, _context: Context) {
         return jsonResponseWithCookies(
           {
             success: true,
-            imported: count,
-            workouts: dbWorkouts,
+            imported: inserted.length,
+            workouts: inserted,
             parseErrors: parsed.errors,
           },
           newCookies,
@@ -2085,6 +2167,35 @@ export default async function handler(request: Request, _context: Context) {
       } catch (error) {
         console.error("POST training plans error:", error);
         return jsonResponse({ error: "Failed to import training plan" }, 500);
+      }
+    });
+  }
+
+  // DELETE /api/training-plans/:id - delete a single workout
+  if (request.method === "DELETE" && !isNaN(parseInt(lastPart, 10))) {
+    return withAuth(request, async (req, _accessToken, newCookies) => {
+      try {
+        const cookieHeader = req.headers.get("cookie");
+        const { athleteId } = parseTokensFromCookies(cookieHeader);
+        if (!athleteId) {
+          return jsonResponse({ error: "No athlete ID" }, 400);
+        }
+
+        const workoutId = parseInt(lastPart, 10);
+        const existing = await getTrainingWorkoutById(workoutId);
+        if (!existing || Number(existing.athlete_id) !== Number(athleteId)) {
+          return jsonResponse({ error: "Workout not found" }, 404);
+        }
+
+        const deleted = await deleteTrainingWorkoutById(workoutId);
+        if (deleted) {
+          await dispatchDeleteEvents(athleteId, eventIdsOf([deleted]));
+        }
+
+        return jsonResponseWithCookies({ success: true }, newCookies);
+      } catch (error) {
+        console.error("DELETE workout error:", error);
+        return jsonResponse({ error: "Failed to delete workout" }, 500);
       }
     });
   }

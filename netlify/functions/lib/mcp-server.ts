@@ -13,7 +13,8 @@ import {
   getWeeklyReportsForAthlete,
   getTrainingWorkoutsForWeek,
   getTrainingWorkoutById,
-  upsertTrainingWorkoutsBatch,
+  insertTrainingWorkoutsBatch,
+  deleteTrainingWorkoutsForDays,
   updateTrainingWorkout,
   deleteTrainingWorkoutsForWeek,
   linkActivityToWorkout,
@@ -347,6 +348,8 @@ function serializeWorkout(w: DbTrainingWorkout) {
   return {
     id: w.id,
     workout_date: date,
+    day_order: w.day_order,
+    time_of_day: w.time_of_day,
     session_name: w.session_name,
     duration_target_minutes: w.duration_target_minutes,
     intensity_target: w.intensity_target,
@@ -981,6 +984,12 @@ export function buildServer(athleteId: number): McpServer {
                 .optional()
                 .describe("Intensity target, e.g. 'Z2', '3x10min @ threshold', '200-220W'"),
               notes: z.string().optional(),
+              time_of_day: z
+                .string()
+                .optional()
+                .describe(
+                  "Optional label for ordering/distinguishing multiple workouts on the same day, e.g. 'AM' or 'PM'.",
+                ),
               workout_text: z
                 .string()
                 .optional()
@@ -994,7 +1003,9 @@ export function buildServer(athleteId: number): McpServer {
         mode: z
           .enum(["replace", "merge"])
           .optional()
-          .describe("replace (default) clears the week first; merge keeps other days"),
+          .describe(
+            "replace (default) clears the whole week first; merge replaces only the days you provide (all workouts on those days) and keeps other days. Multiple workouts per day are allowed.",
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
@@ -1018,23 +1029,23 @@ export function buildServer(athleteId: number): McpServer {
           }
         }
 
+        // Clear the workouts being replaced (whole week, or just the provided
+        // days for merge), capturing their rows so we can delete the matching
+        // intervals.icu events.
         const effectiveMode = mode ?? "replace";
+        let removed: DbTrainingWorkout[] = [];
         if (effectiveMode === "replace") {
-          // Remaining days are updated in place via the stable date-based uid,
-          // so only remove intervals.icu events for days being dropped.
-          const existing = await getTrainingWorkoutsForWeek(
-            athleteId,
-            week_start,
-          );
+          removed = await getTrainingWorkoutsForWeek(athleteId, week_start);
           await deleteTrainingWorkoutsForWeek(athleteId, week_start);
-          const newDates = new Set(workouts.map((w) => w.date));
-          const removed = existing.filter(
-            (w) => !newDates.has(serializeWorkout(w).workout_date),
-          );
-          await dispatchDeleteEvents(athleteId, eventIdsOf(removed));
+        } else {
+          const days = [...new Set(workouts.map((w) => w.date))];
+          removed = await deleteTrainingWorkoutsForDays(athleteId, days);
         }
+        await dispatchDeleteEvents(athleteId, eventIdsOf(removed));
 
-        const imported = await upsertTrainingWorkoutsBatch(
+        // Insert the new workouts (duplicate dates allowed; day_order is set
+        // from each workout's position within its date).
+        const inserted = await insertTrainingWorkoutsBatch(
           workouts.map((w) => ({
             athlete_id: athleteId,
             workout_date: w.date,
@@ -1042,12 +1053,13 @@ export function buildServer(athleteId: number): McpServer {
             duration_target_minutes: w.duration_target_minutes ?? null,
             intensity_target: w.intensity_target ?? null,
             notes: w.notes ?? null,
+            time_of_day: w.time_of_day ?? null,
             workout_text: w.workout_text ?? null,
           })),
         );
 
         console.log(
-          `[tool upsert_training_plan] imported ${imported} row(s); dispatching intervals.icu sync`,
+          `[tool upsert_training_plan] inserted ${inserted.length} row(s); dispatching intervals.icu sync`,
         );
         // Hand the intervals.icu sync to the background function so this tool
         // returns immediately (never blocked by intervals.icu).
@@ -1058,7 +1070,7 @@ export function buildServer(athleteId: number): McpServer {
         return textResult({
           week_start,
           mode: effectiveMode,
-          imported,
+          imported: inserted.length,
           workouts: saved.map(serializeWorkout),
         });
       } catch (err) {
@@ -1102,7 +1114,12 @@ export function buildServer(athleteId: number): McpServer {
         const [y, m, d] = reference_date.split("-").map(Number);
         const refDate = new Date(Date.UTC(y, m - 1, d));
         const dbWorkouts = convertToDbWorkouts(parsed, athleteId, refDate);
-        const imported = await upsertTrainingWorkoutsBatch(dbWorkouts);
+
+        // Replace any existing workouts on the imported days, then insert.
+        const days = [...new Set(dbWorkouts.map((w) => w.workout_date))];
+        const removed = await deleteTrainingWorkoutsForDays(athleteId, days);
+        await dispatchDeleteEvents(athleteId, eventIdsOf(removed));
+        const inserted = await insertTrainingWorkoutsBatch(dbWorkouts);
 
         const weeks = [
           ...new Set(dbWorkouts.map((w) => isoWeekMonday(w.workout_date))),
@@ -1110,7 +1127,7 @@ export function buildServer(athleteId: number): McpServer {
         await Promise.all(weeks.map((wk) => dispatchSyncWeek(athleteId, wk)));
 
         return textResult({
-          imported,
+          imported: inserted.length,
           weeks,
           parse_errors: parsed.errors,
         });
@@ -1135,6 +1152,10 @@ export function buildServer(athleteId: number): McpServer {
         duration_target_minutes: z.number().int().positive().optional(),
         intensity_target: z.string().optional(),
         notes: z.string().optional(),
+        time_of_day: z
+          .string()
+          .optional()
+          .describe("Optional label, e.g. 'AM' or 'PM', for same-day ordering."),
         workout_text: z
           .string()
           .optional()
@@ -1144,7 +1165,7 @@ export function buildServer(athleteId: number): McpServer {
       },
       annotations: { readOnlyHint: false },
     },
-    async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes, workout_text }) => {
+    async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes, time_of_day, workout_text }) => {
       try {
         console.log(`[tool update_workout] athlete=${athleteId} workout=${workout_id}`);
         const existing = await getTrainingWorkoutById(workout_id);
@@ -1162,6 +1183,8 @@ export function buildServer(athleteId: number): McpServer {
               ? intensity_target
               : existing.intensity_target,
           notes: notes !== undefined ? notes : existing.notes,
+          time_of_day:
+            time_of_day !== undefined ? time_of_day : existing.time_of_day,
           workout_text:
             workout_text !== undefined ? workout_text : existing.workout_text,
         });

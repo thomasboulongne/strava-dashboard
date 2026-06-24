@@ -31,6 +31,8 @@ import {
   useUnlinkActivity,
   useDeletePlan,
   useUpdateWorkout,
+  useCreateWorkout,
+  useDeleteWorkout,
   useWeeklyReport,
   useSaveReport,
   getWeekStart,
@@ -196,10 +198,11 @@ function generateWeeklyReport(
   markdown += `|------|---------|----------|----------|\n`;
 
   const weekDates = getWeekDates(weekStart);
-  const workoutsByDate = new Map<string, TrainingWorkoutWithMatch>();
+  const workoutsByDate = new Map<string, TrainingWorkoutWithMatch[]>();
   workouts.forEach((w) => {
     const dateStr = formatDbDate(w.workout_date);
-    workoutsByDate.set(dateStr, w);
+    if (!workoutsByDate.has(dateStr)) workoutsByDate.set(dateStr, []);
+    workoutsByDate.get(dateStr)!.push(w);
   });
 
   // Map unmatched activities by date
@@ -216,23 +219,26 @@ function generateWeeklyReport(
 
   weekDates.forEach((date) => {
     const dateStr = formatLocalDate(date);
-    const workout = workoutsByDate.get(dateStr);
+    const dayWorkouts = workoutsByDate.get(dateStr) || [];
     const unmatchedForDay = unmatchedByDate.get(dateStr) || [];
     const dayName = DAYS[date.getDay() === 0 ? 6 : date.getDay() - 1];
     const dateDisplay = `${dayName} ${date.getDate()}`;
 
-    if (workout) {
-      const activity = workout.matched_activity?.data as Activity | undefined;
-      const isIntervalWorkout = /\d+\s*[x×]\s*\d+/i.test(workout.intensity_target || "");
-      const hadIntervalLaps = workoutsWithIntervalLaps.has(workout.id);
-      const label = activity && isIntervalWorkout && !hadIntervalLaps
-        ? `${workout.session_name} *(intervals not executed)*`
-        : workout.session_name;
-      if (activity) {
-        markdown += `| ${dateDisplay} | ${label} | ${formatActivityDuration(activity.moving_time)} | ${activity.trainer ? "Indoor" : "Outdoor"} |\n`;
-      } else {
-        markdown += `| ${dateDisplay} | ${workout.session_name} | *Cancelled* | — |\n`;
-      }
+    if (dayWorkouts.length > 0) {
+      dayWorkouts.forEach((workout) => {
+        const activity = workout.matched_activity?.data as Activity | undefined;
+        const isIntervalWorkout = /\d+\s*[x×]\s*\d+/i.test(workout.intensity_target || "");
+        const hadIntervalLaps = workoutsWithIntervalLaps.has(workout.id);
+        const prefix = workout.time_of_day ? `${workout.time_of_day}: ` : "";
+        const label = activity && isIntervalWorkout && !hadIntervalLaps
+          ? `${prefix}${workout.session_name} *(intervals not executed)*`
+          : `${prefix}${workout.session_name}`;
+        if (activity) {
+          markdown += `| ${dateDisplay} | ${label} | ${formatActivityDuration(activity.moving_time)} | ${activity.trainer ? "Indoor" : "Outdoor"} |\n`;
+        } else {
+          markdown += `| ${dateDisplay} | ${prefix}${workout.session_name} | *Cancelled* | — |\n`;
+        }
+      });
     } else if (unmatchedForDay.length > 0) {
       // Show unmatched activities
       unmatchedForDay.forEach((ua) => {
@@ -491,68 +497,70 @@ function getWeekDates(weekStart: string): Date[] {
   return dates;
 }
 
-interface DayCellProps {
-  date: Date;
-  workout: TrainingWorkoutWithMatch | null;
-  unmatchedActivities: UnmatchedActivity[];
+interface WorkoutCardProps {
+  workout: TrainingWorkoutWithMatch;
+  availableActivities: UnmatchedActivity[];
   onLinkActivity: (workoutId: number, activityId: number) => void;
   onUnlinkActivity: (workoutId: number) => void;
   onEditWorkout: (workout: TrainingWorkoutWithMatch) => void;
+  onDeleteWorkout: (workout: TrainingWorkoutWithMatch) => void;
   isLinking: boolean;
   isUnlinking: boolean;
 }
 
-function DayCell({
-  date,
+// Renders a single planned workout (matched activity + compliance breakdown).
+function WorkoutCard({
   workout,
-  unmatchedActivities,
+  availableActivities,
   onLinkActivity,
   onUnlinkActivity,
   onEditWorkout,
+  onDeleteWorkout,
   isLinking,
   isUnlinking,
-}: DayCellProps) {
+}: WorkoutCardProps) {
   const [showLinkMenu, setShowLinkMenu] = useState(false);
   const [showComplianceDetails, setShowComplianceDetails] = useState(false);
-  const isToday = new Date().toDateString() === date.toDateString();
-  const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
 
-  // Get activities available for linking on this day
-  const dateStr = formatLocalDate(date);
-  const availableActivities = unmatchedActivities.filter((a) => {
-    const activityDate = (a.data as Activity).start_date_local?.split("T")[0];
-    return activityDate === dateStr;
-  });
-
-  const matchedActivity = workout?.matched_activity?.data as
+  const matchedActivity = workout.matched_activity?.data as
     | Activity
     | undefined;
 
   return (
-    <div
-      className={`${styles.dayCell} ${isToday ? styles.today : ""} ${
-        isPast && !workout ? styles.pastEmpty : ""
-      }`}
-    >
-      <div className={styles.dayHeader}>
-        <span className={styles.dayName}>
-          {DAYS[date.getDay() === 0 ? 6 : date.getDay() - 1]}
-        </span>
-        <span className={styles.dayNumber}>{date.getDate()}</span>
-      </div>
-
-      {workout ? (
         <div className={styles.workoutContent}>
           <div className={styles.plannedWorkout}>
             <div className={styles.sessionNameRow}>
-              <div className={styles.sessionName}>{workout.session_name}</div>
-              <button
-                className={styles.editBtn}
-                onClick={() => onEditWorkout(workout)}
-                title="Edit workout"
-              >
-                <FiEdit2 size={14} />
-              </button>
+              <div className={styles.sessionName}>
+                {workout.time_of_day && (
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      color: "var(--accent-9)",
+                      marginRight: "4px",
+                    }}
+                  >
+                    {workout.time_of_day}
+                  </span>
+                )}
+                {workout.session_name}
+              </div>
+              <div style={{ display: "flex", gap: "2px" }}>
+                <button
+                  className={styles.editBtn}
+                  onClick={() => onEditWorkout(workout)}
+                  title="Edit workout"
+                >
+                  <FiEdit2 size={14} />
+                </button>
+                <button
+                  className={styles.editBtn}
+                  onClick={() => onDeleteWorkout(workout)}
+                  title="Delete workout"
+                >
+                  <FiTrash2 size={14} />
+                </button>
+              </div>
             </div>
             {workout.duration_target_minutes && (
               <div className={styles.workoutMeta}>
@@ -1646,25 +1654,115 @@ function DayCell({
             </div>
           )}
         </div>
-      ) : (
+  );
+}
+
+interface DayCellProps {
+  date: Date;
+  workouts: TrainingWorkoutWithMatch[];
+  unmatchedActivities: UnmatchedActivity[];
+  onLinkActivity: (workoutId: number, activityId: number) => void;
+  onUnlinkActivity: (workoutId: number) => void;
+  onEditWorkout: (workout: TrainingWorkoutWithMatch) => void;
+  onDeleteWorkout: (workout: TrainingWorkoutWithMatch) => void;
+  onAddWorkout: (date: Date) => void;
+  isLinking: boolean;
+  isUnlinking: boolean;
+}
+
+function DayCell({
+  date,
+  workouts,
+  unmatchedActivities,
+  onLinkActivity,
+  onUnlinkActivity,
+  onEditWorkout,
+  onDeleteWorkout,
+  onAddWorkout,
+  isLinking,
+  isUnlinking,
+}: DayCellProps) {
+  const isToday = new Date().toDateString() === date.toDateString();
+  const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+  const dateStr = formatLocalDate(date);
+
+  // Activities on this day not already matched to a workout shown here.
+  const matchedIds = new Set(
+    workouts
+      .map((w) => w.matched_activity?.id)
+      .filter((id): id is number => typeof id === "number"),
+  );
+  const availableActivities = unmatchedActivities.filter((a) => {
+    const activityDate = (a.data as Activity).start_date_local?.split("T")[0];
+    return activityDate === dateStr && !matchedIds.has(a.id);
+  });
+
+  return (
+    <div
+      className={`${styles.dayCell} ${isToday ? styles.today : ""} ${
+        isPast && workouts.length === 0 ? styles.pastEmpty : ""
+      }`}
+    >
+      <div className={styles.dayHeader}>
+        <span className={styles.dayName}>
+          {DAYS[date.getDay() === 0 ? 6 : date.getDay() - 1]}
+        </span>
+        <span className={styles.dayNumber}>{date.getDate()}</span>
+      </div>
+
+      {workouts.map((w) => (
+        <WorkoutCard
+          key={w.id}
+          workout={w}
+          availableActivities={availableActivities}
+          onLinkActivity={onLinkActivity}
+          onUnlinkActivity={onUnlinkActivity}
+          onEditWorkout={onEditWorkout}
+          onDeleteWorkout={onDeleteWorkout}
+          isLinking={isLinking}
+          isUnlinking={isUnlinking}
+        />
+      ))}
+
+      {workouts.length === 0 && availableActivities.length > 0 && (
         <div className={styles.emptyDay}>
-          {availableActivities.length > 0 && (
-            <div className={styles.unplannedActivities}>
-              {availableActivities.map((a) => {
-                const activity = a.data as Activity;
-                return (
-                  <div key={a.id} className={styles.unplannedActivity}>
-                    <span>{activity.name}</span>
-                    <span className={styles.activityMeta}>
-                      {formatActivityDuration(activity.moving_time)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <div className={styles.unplannedActivities}>
+            {availableActivities.map((a) => {
+              const activity = a.data as Activity;
+              return (
+                <div key={a.id} className={styles.unplannedActivity}>
+                  <span>{activity.name}</span>
+                  <span className={styles.activityMeta}>
+                    {formatActivityDuration(activity.moving_time)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
+
+      <button
+        onClick={() => onAddWorkout(date)}
+        title="Add workout"
+        style={{
+          marginTop: "4px",
+          width: "100%",
+          fontSize: "11px",
+          padding: "3px",
+          background: "transparent",
+          border: "1px dashed var(--gray-6)",
+          borderRadius: "4px",
+          color: "var(--gray-10)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "4px",
+        }}
+      >
+        <FiPlus size={12} /> Add
+      </button>
     </div>
   );
 }
@@ -1686,11 +1784,14 @@ export function TrainingPlan() {
 
   // Edit workout modal state
   const [editingWorkout, setEditingWorkout] = useState<TrainingWorkoutWithMatch | null>(null);
+  // When set, the modal is in "create" mode for this date (YYYY-MM-DD).
+  const [creatingForDate, setCreatingForDate] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     session_name: '',
     duration_input: '', // Store as string for flexible input
     intensity_target: '',
     notes: '',
+    time_of_day: '', // optional AM/PM-style label for same-day ordering
     workout_text: '', // intervals.icu workout DSL (pushed to Garmin)
   });
 
@@ -1713,6 +1814,8 @@ export function TrainingPlan() {
   const unlinkMutation = useUnlinkActivity();
   const deleteMutation = useDeletePlan();
   const updateMutation = useUpdateWorkout();
+  const createMutation = useCreateWorkout();
+  const deleteWorkoutMutation = useDeleteWorkout();
   const saveReportMutation = useSaveReport();
 
   // Handle import
@@ -1813,6 +1916,7 @@ export function TrainingPlan() {
 
   // Handle edit workout
   const handleEditWorkout = (workout: TrainingWorkoutWithMatch) => {
+    setCreatingForDate(null);
     setEditingWorkout(workout);
     setEditForm({
       session_name: workout.session_name,
@@ -1821,12 +1925,40 @@ export function TrainingPlan() {
         : '',
       intensity_target: workout.intensity_target || '',
       notes: workout.notes || '',
+      time_of_day: workout.time_of_day || '',
       workout_text: workout.workout_text || '',
     });
   };
 
+  // Open the modal in "create" mode for a specific day.
+  const handleAddWorkout = (date: Date) => {
+    setEditingWorkout(null);
+    setCreatingForDate(formatLocalDate(date));
+    setEditForm({
+      session_name: '',
+      duration_input: '',
+      intensity_target: '',
+      notes: '',
+      time_of_day: '',
+      workout_text: '',
+    });
+  };
+
+  // Delete a single workout.
+  const handleDeleteWorkout = async (workout: TrainingWorkoutWithMatch) => {
+    if (!confirm(`Delete "${workout.session_name}"?`)) return;
+    try {
+      await deleteWorkoutMutation.mutateAsync(workout.id);
+    } catch (error) {
+      console.error('Failed to delete workout:', error);
+    }
+  };
+
   const handleSaveEdit = async () => {
-    if (!editingWorkout || !editForm.session_name.trim()) {
+    if (!editForm.session_name.trim()) {
+      return;
+    }
+    if (!editingWorkout && !creatingForDate) {
       return;
     }
 
@@ -1842,20 +1974,34 @@ export function TrainingPlan() {
     }
 
     try {
-      await updateMutation.mutateAsync({
-        workoutId: editingWorkout.id,
-        updates: {
+      if (creatingForDate) {
+        await createMutation.mutateAsync({
+          workout_date: creatingForDate,
           session_name: editForm.session_name.trim(),
           duration_target_minutes: durationMinutes,
           intensity_target: editForm.intensity_target.trim() || null,
           notes: editForm.notes.trim() || null,
+          time_of_day: editForm.time_of_day.trim() || null,
           workout_text: editForm.workout_text.trim() || null,
-        },
-      });
-      setEditingWorkout(null);
+        });
+        setCreatingForDate(null);
+      } else if (editingWorkout) {
+        await updateMutation.mutateAsync({
+          workoutId: editingWorkout.id,
+          updates: {
+            session_name: editForm.session_name.trim(),
+            duration_target_minutes: durationMinutes,
+            intensity_target: editForm.intensity_target.trim() || null,
+            notes: editForm.notes.trim() || null,
+            time_of_day: editForm.time_of_day.trim() || null,
+            workout_text: editForm.workout_text.trim() || null,
+          },
+        });
+        setEditingWorkout(null);
+      }
     } catch (error) {
       // Error will be shown in modal
-      console.error('Failed to update workout:', error);
+      console.error('Failed to save workout:', error);
     }
   };
 
@@ -1890,11 +2036,12 @@ export function TrainingPlan() {
   const workouts = planData?.workouts ?? [];
   const unmatchedActivities = planData?.unmatchedActivities ?? [];
 
-  // Map workouts by date for easy lookup
-  const workoutsByDate = new Map<string, TrainingWorkoutWithMatch>();
+  // Map workouts by date for easy lookup (multiple workouts per day)
+  const workoutsByDate = new Map<string, TrainingWorkoutWithMatch[]>();
   workouts.forEach((w) => {
     const dateStr = formatDbDate(w.workout_date);
-    workoutsByDate.set(dateStr, w);
+    if (!workoutsByDate.has(dateStr)) workoutsByDate.set(dateStr, []);
+    workoutsByDate.get(dateStr)!.push(w);
   });
 
   return (
@@ -1988,13 +2135,13 @@ export function TrainingPlan() {
             <div className={styles.calendarGrid}>
               {weekDates.map((date) => {
                 const dateStr = formatLocalDate(date);
-                const workout = workoutsByDate.get(dateStr) || null;
+                const dayWorkouts = workoutsByDate.get(dateStr) || [];
 
                 return (
                   <DayCell
                     key={dateStr}
                     date={date}
-                    workout={workout}
+                    workouts={dayWorkouts}
                     unmatchedActivities={unmatchedActivities}
                     onLinkActivity={(workoutId, activityId) =>
                       linkMutation.mutate({ workoutId, activityId })
@@ -2003,6 +2150,8 @@ export function TrainingPlan() {
                       unlinkMutation.mutate(workoutId)
                     }
                     onEditWorkout={handleEditWorkout}
+                    onDeleteWorkout={handleDeleteWorkout}
+                    onAddWorkout={handleAddWorkout}
                     isLinking={linkMutation.isPending}
                     isUnlinking={unlinkMutation.isPending}
                   />
@@ -2208,13 +2357,22 @@ export function TrainingPlan() {
 
       {/* Edit Workout Modal */}
       <Dialog.Root
-        open={!!editingWorkout}
-        onOpenChange={(open) => !open && setEditingWorkout(null)}
+        open={!!editingWorkout || !!creatingForDate}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingWorkout(null);
+            setCreatingForDate(null);
+          }
+        }}
       >
         <Dialog.Content maxWidth="500px">
-          <Dialog.Title>Edit Workout</Dialog.Title>
+          <Dialog.Title>
+            {creatingForDate ? "Add Workout" : "Edit Workout"}
+          </Dialog.Title>
           <Dialog.Description size="2" mb="4">
-            Modify workout details. Compliance will be recalculated automatically.
+            {creatingForDate
+              ? "Add a workout to this day. Multiple workouts per day are supported."
+              : "Modify workout details. Compliance will be recalculated automatically."}
           </Dialog.Description>
 
           <Flex direction="column" gap="3">
@@ -2229,6 +2387,20 @@ export function TrainingPlan() {
                 onChange={(e) => setEditForm({ ...editForm, session_name: e.target.value })}
                 className={styles.input}
                 placeholder="e.g., Endurance, Intervals"
+              />
+            </label>
+
+            {/* Time of day (for ordering multiple workouts on one day) */}
+            <label>
+              <Text as="div" size="2" weight="bold" mb="1">
+                Time of day
+              </Text>
+              <input
+                type="text"
+                value={editForm.time_of_day}
+                onChange={(e) => setEditForm({ ...editForm, time_of_day: e.target.value })}
+                className={styles.input}
+                placeholder="Optional, e.g. AM, PM"
               />
             </label>
 
@@ -2301,11 +2473,14 @@ export function TrainingPlan() {
             )}
 
             {/* Error Display */}
-            {updateMutation.error && (
+            {(updateMutation.error || createMutation.error) && (
               <Text color="red" size="2">
-                {updateMutation.error instanceof Error
-                  ? updateMutation.error.message
-                  : "Failed to update workout"}
+                {(() => {
+                  const err = updateMutation.error || createMutation.error;
+                  return err instanceof Error
+                    ? err.message
+                    : "Failed to save workout";
+                })()}
               </Text>
             )}
 
@@ -2318,9 +2493,17 @@ export function TrainingPlan() {
               </Dialog.Close>
               <Button
                 onClick={handleSaveEdit}
-                disabled={!editForm.session_name.trim() || updateMutation.isPending}
+                disabled={
+                  !editForm.session_name.trim() ||
+                  updateMutation.isPending ||
+                  createMutation.isPending
+                }
               >
-                {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                {updateMutation.isPending || createMutation.isPending
+                  ? "Saving..."
+                  : creatingForDate
+                    ? "Add Workout"
+                    : "Save Changes"}
               </Button>
             </Flex>
           </Flex>

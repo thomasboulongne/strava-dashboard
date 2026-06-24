@@ -303,6 +303,9 @@ export interface TrainingWorkout {
   notes: string | null;
   matched_activity_id: number | null;
   is_manually_linked: boolean;
+  // Ordering within a day (multiple workouts per day) + optional time label
+  day_order: number;
+  time_of_day: string | null;
   // intervals.icu structured workout text + last sync error (Garmin sync)
   workout_text: string | null;
   icu_event_id: number | null;

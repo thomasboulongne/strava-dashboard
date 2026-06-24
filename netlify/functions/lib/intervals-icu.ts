@@ -18,11 +18,11 @@ export interface IcuCredentials {
 // a slow or unreachable API can never hang the serverless function.
 const ICU_TIMEOUT_MS = 8000;
 
-// Stable per-day id (there is one workout per athlete per day). Keyed by
-// athlete + date rather than the DB row id, so re-pushes upsert in place via
-// ?upsertOnUid=true and survive plan "replace" (which reassigns row ids).
-export function workoutUid(athleteId: number, dateYmd: string): string {
-  return `strava-dashboard-a${athleteId}-${dateYmd}`;
+// Per-workout id (a day can hold multiple workouts, so we key on the DB row id
+// rather than the date). Replaced rows get new ids; their old events are
+// deleted via the stored icu_event_id, so no stale events accumulate.
+export function workoutUid(workoutId: number): string {
+  return `strava-dashboard-w${workoutId}`;
 }
 
 function authHeader(apiKey: string): string {
@@ -263,6 +263,7 @@ export function workoutToIcuDescription(
 // --- API calls --------------------------------------------------------------
 
 export interface UpsertWorkoutInput {
+  workoutId: number;
   dateYmd: string; // YYYY-MM-DD
   name: string;
   description: string;
@@ -278,8 +279,8 @@ export class IcuApiError extends Error {
 }
 
 // Build the intervals.icu calendar-event body for a single workout.
-function eventBody(athleteId: number, input: UpsertWorkoutInput) {
-  const uid = workoutUid(athleteId, input.dateYmd);
+function eventBody(input: UpsertWorkoutInput) {
+  const uid = workoutUid(input.workoutId);
   return {
     uid,
     external_id: uid,
@@ -294,7 +295,6 @@ function eventBody(athleteId: number, input: UpsertWorkoutInput) {
 // Create or update a single workout calendar event. Returns the event id.
 export async function upsertWorkoutEvent(
   creds: IcuCredentials,
-  athleteId: number,
   input: UpsertWorkoutInput,
 ): Promise<number> {
   const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events?upsertOnUid=true`;
@@ -304,7 +304,7 @@ export async function upsertWorkoutEvent(
       Authorization: authHeader(creds.apiKey),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(eventBody(athleteId, input)),
+    body: JSON.stringify(eventBody(input)),
   });
 
   if (!res.ok) {
@@ -329,15 +329,14 @@ export async function upsertWorkoutEvent(
 
 /**
  * Create or update many workout events in a SINGLE request. Returns a map of
- * date (YYYY-MM-DD) -> intervals.icu event id for events we can match back via
- * their deterministic uid.
+ * workout id -> intervals.icu event id for events we can match back via their
+ * deterministic uid.
  */
 export async function upsertWorkoutEventsBulk(
   creds: IcuCredentials,
-  athleteId: number,
   inputs: UpsertWorkoutInput[],
-): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
+): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
   if (inputs.length === 0) return result;
 
   const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events/bulk?upsertOnUid=true`;
@@ -347,7 +346,7 @@ export async function upsertWorkoutEventsBulk(
       Authorization: authHeader(creds.apiKey),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(inputs.map((i) => eventBody(athleteId, i))),
+    body: JSON.stringify(inputs.map((i) => eventBody(i))),
   });
 
   if (!res.ok) {
@@ -376,25 +375,18 @@ export async function upsertWorkoutEventsBulk(
     ).slice(0, 300)}`,
   );
 
-  // Match returned events back to our workouts. intervals.icu's response shape
-  // can vary, so try several keys: our deterministic uid/external_id, then the
-  // event date, then finally positional order (response mirrors the request).
+  // Match returned events back to our workouts by our deterministic uid /
+  // external_id, falling back to positional order (response mirrors request).
   const idByKey = new Map<string, number>();
-  const idByDate = new Map<string, number>();
   for (const ev of data) {
     if (!ev || typeof ev.id !== "number") continue;
     if (typeof ev.uid === "string") idByKey.set(ev.uid, ev.id);
     if (typeof ev.external_id === "string") idByKey.set(ev.external_id, ev.id);
-    if (typeof ev.start_date_local === "string") {
-      idByDate.set(ev.start_date_local.slice(0, 10), ev.id);
-    }
   }
 
   for (let i = 0; i < inputs.length; i++) {
     const input = inputs[i];
-    let id =
-      idByKey.get(workoutUid(athleteId, input.dateYmd)) ??
-      idByDate.get(input.dateYmd);
+    let id = idByKey.get(workoutUid(input.workoutId));
     if (
       id === undefined &&
       data.length === inputs.length &&
@@ -402,7 +394,7 @@ export async function upsertWorkoutEventsBulk(
     ) {
       id = data[i]!.id;
     }
-    if (id !== undefined) result.set(input.dateYmd, id);
+    if (id !== undefined) result.set(input.workoutId, id);
   }
   return result;
 }

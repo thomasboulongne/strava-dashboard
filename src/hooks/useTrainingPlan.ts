@@ -6,6 +6,8 @@ import {
   unlinkActivityFromWorkout,
   deleteTrainingPlan,
   updateTrainingWorkout,
+  createTrainingWorkout,
+  deleteTrainingWorkout,
   getWeeklyReport,
   saveWeeklyReport,
 } from "../lib/api";
@@ -210,6 +212,7 @@ export function useUpdateWorkout() {
         duration_target_minutes: number | null;
         intensity_target: string | null;
         notes: string | null;
+        time_of_day?: string | null;
         workout_text?: string | null;
       };
     }) => updateTrainingWorkout(workoutId, updates),
@@ -220,6 +223,46 @@ export function useUpdateWorkout() {
         queryClient.invalidateQueries({ queryKey: ["trainingPlan", weekStart] });
       }
       // Also invalidate all as fallback
+      queryClient.invalidateQueries({ queryKey: ["trainingPlan"] });
+    },
+  });
+}
+
+/**
+ * Hook to create a single workout (multiple per day allowed)
+ */
+export function useCreateWorkout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (workout: {
+      workout_date: string;
+      session_name: string;
+      duration_target_minutes: number | null;
+      intensity_target: string | null;
+      notes: string | null;
+      time_of_day?: string | null;
+      workout_text?: string | null;
+    }) => createTrainingWorkout(workout),
+    onSuccess: (data) => {
+      if (data.workout) {
+        const weekStart = getWeekStart(new Date(data.workout.workout_date));
+        queryClient.invalidateQueries({ queryKey: ["trainingPlan", weekStart] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["trainingPlan"] });
+    },
+  });
+}
+
+/**
+ * Hook to delete a single workout by id
+ */
+export function useDeleteWorkout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (workoutId: number) => deleteTrainingWorkout(workoutId),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trainingPlan"] });
     },
   });
