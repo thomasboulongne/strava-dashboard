@@ -994,7 +994,7 @@ export function buildServer(athleteId: number): McpServer {
                 .string()
                 .optional()
                 .describe(
-                  "intervals.icu workout description in its text DSL, one step per line, e.g. '- 15m 55-75%\\n- 3x10m 88-93% 5m 55%\\n- 10m 55%'. When set, this is pushed verbatim to intervals.icu/Garmin; otherwise a best-effort structure is derived from session_name/intensity_target.",
+                  "intervals.icu workout in its text format (pushed verbatim to Garmin). Each step is a line starting with '- '. For repeats, put a standalone 'Nx' line (e.g. '3x') before the work+recovery steps with a blank line before and after the block (do NOT inline as '- 3x10m ...'). End warm-up, recovery and cool-down steps with 'Press lap' (lap-button) and leave work intervals timed. Example: '- 15m 55-75% Press lap\\n\\n3x\\n- 10m 88-93%\\n- 5m 55% Press lap\\n\\n- 10m 55% Press lap'. If omitted, a best-effort structure is derived from session_name/intensity_target.",
                 ),
             }),
           )
@@ -1160,7 +1160,7 @@ export function buildServer(athleteId: number): McpServer {
           .string()
           .optional()
           .describe(
-            "intervals.icu workout description in its text DSL (one step per line). When set, pushed verbatim to intervals.icu/Garmin.",
+            "intervals.icu workout in its text format (pushed verbatim to Garmin). Repeats use a standalone 'Nx' line before the work+recovery steps (blank line around the block), not inline. End warm-up/recovery/cool-down steps with 'Press lap'; leave work intervals timed.",
           ),
       },
       annotations: { readOnlyHint: false },

@@ -100,37 +100,109 @@ export function parseSetsFromText(
   return sets;
 }
 
-// Matches an intervals.icu DSL repeat line, e.g. "3x10m 88-93% 5m 55%".
+// Legacy inline repeat line (pre-block format), e.g. "3x10m 88-93% 5m 55%".
 const DSL_REPEAT_RE =
   /(\d+)\s*x\s*(\d+)\s*(min(?:ute)?s?|sec(?:ond)?s?|m|s)?\s*(\d+)(?:\s*-\s*(\d+))?\s*%(?:\s+(\d+)\s*(min(?:ute)?s?|sec(?:ond)?s?|m|s)?\s*(\d+)(?:\s*-\s*(\d+))?\s*%)?/i;
 
+// A standalone repeat header, e.g. "3x" or "Main Set 3x".
+const REPEAT_HEADER_RE = /(?:^|\s)(\d+)\s*x\s*$/i;
+
+// Sum the duration tokens at the start of a step line (before the first %),
+// supporting combined forms like "1m30s". Returns seconds, or null.
+function parseStepDurationSec(stepText: string): number | null {
+  const beforeTarget = stepText.split("%")[0];
+  const re =
+    /(\d+)\s*(h|hour|min(?:ute)?s?|sec(?:ond)?s?|m|s|['\u2032"\u2033])/gi;
+  let total = 0;
+  let found = false;
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(beforeTarget)) !== null) {
+    const v = parseInt(mm[1], 10);
+    const u = mm[2].toLowerCase();
+    if (u === "h" || u.startsWith("hour")) total += v * 3600;
+    else if (u.startsWith("sec") || u === "s" || u === '"' || u === "\u2033")
+      total += v;
+    else total += v * 60;
+    found = true;
+  }
+  return found ? total : null;
+}
+
+// First %FTP value (or range midpoint) in a step line.
+function parseStepPct(stepText: string): number | null {
+  const m = stepText.match(/(\d{2,3})(?:\s*-\s*(\d{2,3}))?\s*%/);
+  if (!m) return null;
+  const lo = parseInt(m[1], 10);
+  const hi = m[2] ? parseInt(m[2], 10) : lo;
+  return (lo + hi) / 2;
+}
+
 /**
- * Parse sets from the intervals.icu workout_text DSL. Only repeat lines
- * (e.g. "- 3x10m 88-93% 5m 55%") count as interval sets; plain steps
+ * Parse sets from the intervals.icu workout_text DSL. Recognizes the canonical
+ * standalone-repeat block form:
+ *   3x
+ *   - 1m 110-120%
+ *   - 5m 50-60% Press lap
+ * as well as the legacy inline form ("- 3x10m 90% 5m 55%"). Plain steps
  * (warm-up / cool-down / steady) are ignored.
  */
 export function parseSetsFromDsl(dsl: string): IntervalSet[] {
   const sets: IntervalSet[] = [];
-  for (const rawLine of dsl.split(/\r?\n/)) {
-    const line = rawLine.trim().replace(/^-\s*/, "");
-    const m = line.match(DSL_REPEAT_RE);
-    if (!m) continue;
+  const lines = dsl.split(/\r?\n/).map((l) => l.trim());
 
-    const count = parseInt(m[1], 10);
-    const workSec = toSeconds(parseInt(m[2], 10), m[3] || "m");
-    if (count < 1 || count > 30 || workSec < 5 || workSec > 7200) continue;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
 
-    const workLo = parseInt(m[4], 10);
-    const workHi = m[5] ? parseInt(m[5], 10) : workLo;
-    const workPct = (workLo + workHi) / 2;
+    // Standalone repeat header ("3x" / "Main Set 3x") followed by step lines.
+    const header = !line.startsWith("-") ? line.match(REPEAT_HEADER_RE) : null;
+    if (header) {
+      const count = parseInt(header[1], 10);
+      const steps: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && lines[j].startsWith("-")) {
+        steps.push(lines[j].replace(/^-\s*/, ""));
+        j++;
+      }
+      i = j - 1; // skip consumed step lines
 
-    let recoverySec: number | null = null;
-    if (m[6]) {
-      const sec = toSeconds(parseInt(m[6], 10), m[7] || "m");
-      recoverySec = sec >= 5 && sec <= 1800 ? sec : null;
+      if (count < 1 || count > 30 || steps.length === 0) continue;
+      const workSec = parseStepDurationSec(steps[0]);
+      if (workSec == null || workSec < 5 || workSec > 7200) continue;
+      const workPct = parseStepPct(steps[0]) ?? 90;
+      let recoverySec: number | null = null;
+      if (steps[1]) {
+        const r = parseStepDurationSec(steps[1]);
+        recoverySec = r != null && r >= 5 && r <= 1800 ? r : null;
+      }
+      sets.push({
+        count,
+        workSec,
+        targetZone: pctToZone(workPct),
+        recoverySec,
+      });
+      continue;
     }
 
-    sets.push({ count, workSec, targetZone: pctToZone(workPct), recoverySec });
+    // Legacy inline repeat line.
+    const inline = line.replace(/^-\s*/, "").match(DSL_REPEAT_RE);
+    if (!inline) continue;
+    const count = parseInt(inline[1], 10);
+    const workSec = toSeconds(parseInt(inline[2], 10), inline[3] || "m");
+    if (count < 1 || count > 30 || workSec < 5 || workSec > 7200) continue;
+    const workLo = parseInt(inline[4], 10);
+    const workHi = inline[5] ? parseInt(inline[5], 10) : workLo;
+    let recoverySec: number | null = null;
+    if (inline[6]) {
+      const sec = toSeconds(parseInt(inline[6], 10), inline[7] || "m");
+      recoverySec = sec >= 5 && sec <= 1800 ? sec : null;
+    }
+    sets.push({
+      count,
+      workSec,
+      targetZone: pctToZone((workLo + workHi) / 2),
+      recoverySec,
+    });
   }
   return sets;
 }

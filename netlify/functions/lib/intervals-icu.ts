@@ -138,49 +138,6 @@ function textToPct(
   return null;
 }
 
-interface ParsedInterval {
-  count: number;
-  workSec: number;
-  recoverySec: number | null;
-}
-
-// Detect "Nx<duration>" style interval structures in the session text.
-function parseIntervalStructure(text: string): ParsedInterval | null {
-  const patterns = [
-    /(\d+)\s*[x×]\s*(\d+)\s*(min(?:ute)?s?|m)\b/i,
-    /(\d+)\s*[x×]\s*(\d+)\s*['′]/,
-    /(\d+)\s*[x×]\s*(\d+)\s*(sec(?:ond)?s?|s)\b/i,
-    /(\d+)\s*[x×]\s*(\d+)\s*["″]/,
-  ];
-  for (let i = 0; i < patterns.length; i++) {
-    const m = text.match(patterns[i]);
-    if (!m) continue;
-    const count = parseInt(m[1], 10);
-    const value = parseInt(m[2], 10);
-    const unit = (m[3] || "").toLowerCase();
-    const isSeconds =
-      i === 2 || i === 3 || unit.startsWith("sec") || unit === "s";
-    const workSec = isSeconds ? value : value * 60;
-    if (count < 1 || count > 30 || workSec < 5 || workSec > 7200) continue;
-
-    // Recovery: "/ 3min", "with 2min recovery", "(90s recovery)".
-    let recoverySec: number | null = null;
-    const recMatch = text.match(
-      /(?:\/|with|after|then|,)\s*(\d+)\s*(min(?:ute)?s?|m|sec(?:ond)?s?|s|['′"])\s*(?:recovery|rest|easy|spin)?/i,
-    );
-    if (recMatch) {
-      const rv = parseInt(recMatch[1], 10);
-      const ru = (recMatch[2] || "").toLowerCase();
-      const recIsSeconds =
-        ru.startsWith("sec") || ru === "s" || ru === '"' || ru === "″";
-      const sec = recIsSeconds ? rv : rv * 60;
-      if (sec >= 5 && sec <= 1800) recoverySec = sec;
-    }
-    return { count, workSec, recoverySec };
-  }
-  return null;
-}
-
 function fmtDuration(seconds: number): string {
   if (seconds % 60 === 0) return `${seconds / 60}m`;
   if (seconds < 60) return `${seconds}s`;
@@ -213,46 +170,34 @@ export function workoutToIcuDescription(
     return workout.workout_text.trim();
   }
 
-  const combined = [workout.session_name, workout.intensity_target]
-    .filter(Boolean)
-    .join(" ");
-
   const targetPct =
     textToPct(workout.intensity_target, opts) ??
     textToPct(workout.session_name, opts) ??
     zoneToPct(2, opts);
 
-  // Multi-set workouts (e.g. "3x10min @ Z4 then 2x20min @ Z3"): emit one repeat
-  // line per set, bracketed by a light warm-up / cool-down.
+  // Emit the canonical intervals.icu block format: a standalone "Nx" line per
+  // set followed by its work + recovery steps, blank line around each block.
+  // Warm-up, recovery and cool-down end on a lap-button press ("Press lap");
+  // work intervals stay timed/automatic.
   const sets = parseSetsFromText(
     workout.session_name,
     workout.intensity_target ?? null,
   );
-  if (sets.length > 1) {
-    const lines = [`- 10m ${fmtPct(zoneToPct(2, opts))}`];
+  if (sets.length > 0) {
+    const warmupPct = fmtPct(zoneToPct(2, opts));
+    const recoveryPct = fmtPct(zoneToPct(1, opts));
+    const lines: string[] = [`- 10m ${warmupPct} Press lap`];
     for (const s of sets) {
       const workPct = fmtPct(zoneToPct(s.targetZone ?? 3, opts));
-      const recoveryPct = fmtPct(zoneToPct(1, opts));
       const recoverySec = s.recoverySec ?? 180;
-      lines.push(
-        `- ${s.count}x${fmtDuration(s.workSec)} ${workPct} ${fmtDuration(
-          recoverySec,
-        )} ${recoveryPct}`,
-      );
+      lines.push("");
+      lines.push(`${s.count}x`);
+      lines.push(`- ${fmtDuration(s.workSec)} ${workPct}`);
+      lines.push(`- ${fmtDuration(recoverySec)} ${recoveryPct} Press lap`);
     }
-    lines.push(`- 5m ${fmtPct(zoneToPct(1, opts))}`);
+    lines.push("");
+    lines.push(`- 5m ${recoveryPct} Press lap`);
     return lines.join("\n");
-  }
-
-  const structure = parseIntervalStructure(combined);
-  if (structure) {
-    const recoveryPct = zoneToPct(1, opts);
-    const recoverySec = structure.recoverySec ?? 180;
-    const work = `${structure.count}x${fmtDuration(
-      structure.workSec,
-    )} ${fmtPct(targetPct)} ${fmtDuration(recoverySec)} ${fmtPct(recoveryPct)}`;
-    // Add a light warm-up / cool-down to bracket the intervals.
-    return [`- 10m ${fmtPct(zoneToPct(2, opts))}`, `- ${work}`, `- 5m ${fmtPct(zoneToPct(1, opts))}`].join("\n");
   }
 
   // Single steady step from the target duration (default 60 min).

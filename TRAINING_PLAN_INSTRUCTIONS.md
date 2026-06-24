@@ -182,20 +182,31 @@ workout is automatically pushed to the intervals.icu calendar as a `Ride`
 workout whenever it is created, updated, or deleted. intervals.icu then
 forwards the workout to Garmin Connect / your Edge.
 
-Each workout has an optional `workout_text` field holding the workout in
-intervals.icu's text DSL. This is the **preferred** source for the upload:
+Only workouts that contain interval structure (repeats) are pushed to Garmin;
+plain steady/endurance rides are skipped (no workout file is created).
 
-- One step per line, each beginning with `- `.
-- Duration uses `m` (minutes) or `s` (seconds); intensity is a `%FTP` value or
-  range.
-- Repeats use `Nx<duration> <intensity> <recovery-duration> <recovery-intensity>`.
+Each workout has an optional `workout_text` field holding the workout in
+intervals.icu's text format. This is the **preferred** source for the upload:
+
+- One step per line, each beginning with `- ` (e.g. `- 15m 55-75%`).
+- Duration uses `m` (minutes) / `s` (seconds); intensity is a `%FTP` value or
+  range (e.g. `88-93%`).
+- Repeats: put a standalone `Nx` line (e.g. `3x`) BEFORE the work + recovery
+  steps, with a blank line before and after the block. Do NOT inline as
+  `- 3x10m ...` (intervals.icu ignores inline repeats).
+- Lap button: end warm-up, recovery and cool-down steps with `Press lap` so they
+  end on a lap-button press on the Edge; leave work intervals timed (automatic).
 
 Example:
 
 ```
-- 15m 55-75%
-- 3x10m 88-93% 5m 55%
-- 10m 55%
+- 15m 55-75% Press lap
+
+3x
+- 10m 88-93%
+- 5m 55% Press lap
+
+- 10m 55% Press lap
 ```
 
 If `workout_text` is left blank, a best-effort structure is derived from the
@@ -207,14 +218,21 @@ explicitly (in the plan edit modal, or via the MCP `workout_text` argument on
 
 ### Multiple sets of intervals
 
-Workouts with more than one set are fully supported. The cleanest way is one
-repeat line per set in `workout_text`:
+Workouts with more than one set are fully supported. Use one `Nx` block per set
+in `workout_text` (blank line around each block):
 
 ```
-- 15m 55-75%
-- 3x10m 88-93% 5m 55%
-- 2x20m 76-82% 5m 50%
-- 10m 55%
+- 15m 55-75% Press lap
+
+3x
+- 10m 88-93%
+- 5m 55% Press lap
+
+2x
+- 20m 76-82%
+- 5m 50% Press lap
+
+- 10m 55% Press lap
 ```
 
 This uploads as warm-up -> 3x10min threshold -> 2x20min tempo -> cool-down.

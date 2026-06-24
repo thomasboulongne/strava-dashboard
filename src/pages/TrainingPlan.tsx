@@ -2456,7 +2456,7 @@ export function TrainingPlan() {
               <TextArea
                 value={editForm.workout_text}
                 onChange={(e) => setEditForm({ ...editForm, workout_text: e.target.value })}
-                placeholder={"One step per line, e.g.\n- 15m 55-75%\n- 3x10m 88-93% 5m 55%\n- 10m 55%"}
+                placeholder={"intervals.icu format. Repeats use a standalone Nx line; warm-up/recovery end with 'Press lap':\n- 15m 55-75% Press lap\n\n3x\n- 10m 88-93%\n- 5m 55% Press lap\n\n- 10m 55% Press lap"}
                 style={{ minHeight: "100px", fontFamily: "monospace" }}
               />
               <Text as="div" size="1" color="gray" mt="1">
