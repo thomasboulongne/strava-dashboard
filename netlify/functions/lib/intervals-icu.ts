@@ -14,9 +14,15 @@ export interface IcuCredentials {
   apiKey: string;
 }
 
-// Stable per-workout id so re-pushes upsert in place via ?upsertOnUid=true.
-export function workoutUid(workoutId: number): string {
-  return `strava-dashboard-w${workoutId}`;
+// How long any single intervals.icu request may take before it is aborted, so
+// a slow or unreachable API can never hang the serverless function.
+const ICU_TIMEOUT_MS = 8000;
+
+// Stable per-day id (there is one workout per athlete per day). Keyed by
+// athlete + date rather than the DB row id, so re-pushes upsert in place via
+// ?upsertOnUid=true and survive plan "replace" (which reassigns row ids).
+export function workoutUid(athleteId: number, dateYmd: string): string {
+  return `strava-dashboard-a${athleteId}-${dateYmd}`;
 }
 
 function authHeader(apiKey: string): string {
@@ -25,11 +31,9 @@ function authHeader(apiKey: string): string {
   return `Basic ${token}`;
 }
 
-function dateToYmd(workoutDate: Date | string): string {
-  if (workoutDate instanceof Date) {
-    return workoutDate.toISOString().slice(0, 10);
-  }
-  return String(workoutDate).slice(0, 10);
+// fetch with an abort timeout (Node 18+ provides AbortSignal.timeout).
+function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(ICU_TIMEOUT_MS) });
 }
 
 // --- Workout text (DSL) serialization ---------------------------------------
@@ -231,7 +235,6 @@ export function workoutToIcuDescription(
 // --- API calls --------------------------------------------------------------
 
 export interface UpsertWorkoutInput {
-  workoutId: number;
   dateYmd: string; // YYYY-MM-DD
   name: string;
   description: string;
@@ -246,29 +249,34 @@ export class IcuApiError extends Error {
   }
 }
 
-// Create or update a workout calendar event. Returns the intervals.icu event id.
-export async function upsertWorkoutEvent(
-  creds: IcuCredentials,
-  input: UpsertWorkoutInput,
-): Promise<number> {
-  const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events?upsertOnUid=true`;
-  const body = {
-    uid: workoutUid(input.workoutId),
-    external_id: workoutUid(input.workoutId),
+// Build the intervals.icu calendar-event body for a single workout.
+function eventBody(athleteId: number, input: UpsertWorkoutInput) {
+  const uid = workoutUid(athleteId, input.dateYmd);
+  return {
+    uid,
+    external_id: uid,
     category: "WORKOUT",
     type: "Ride",
     start_date_local: `${input.dateYmd}T00:00:00`,
     name: input.name,
     description: input.description,
   };
+}
 
-  const res = await fetch(url, {
+// Create or update a single workout calendar event. Returns the event id.
+export async function upsertWorkoutEvent(
+  creds: IcuCredentials,
+  athleteId: number,
+  input: UpsertWorkoutInput,
+): Promise<number> {
+  const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events?upsertOnUid=true`;
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       Authorization: authHeader(creds.apiKey),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(eventBody(athleteId, input)),
   });
 
   if (!res.ok) {
@@ -291,13 +299,65 @@ export async function upsertWorkoutEvent(
   return id;
 }
 
+/**
+ * Create or update many workout events in a SINGLE request. Returns a map of
+ * date (YYYY-MM-DD) -> intervals.icu event id for events we can match back via
+ * their deterministic uid.
+ */
+export async function upsertWorkoutEventsBulk(
+  creds: IcuCredentials,
+  athleteId: number,
+  inputs: UpsertWorkoutInput[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (inputs.length === 0) return result;
+
+  const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events/bulk?upsertOnUid=true`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(creds.apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(inputs.map((i) => eventBody(athleteId, i))),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new IcuApiError(
+      `intervals.icu bulk upsert failed (${res.status}): ${text.slice(0, 300)}`,
+      res.status,
+    );
+  }
+
+  const data = (await res.json().catch(() => null)) as
+    | Array<{ id?: number; uid?: string }>
+    | null;
+  if (!Array.isArray(data)) {
+    throw new IcuApiError("intervals.icu bulk upsert returned no events", 502);
+  }
+
+  // Map returned event ids back to their date via the deterministic uid.
+  const idByUid = new Map<string, number>();
+  for (const ev of data) {
+    if (ev && typeof ev.id === "number" && typeof ev.uid === "string") {
+      idByUid.set(ev.uid, ev.id);
+    }
+  }
+  for (const input of inputs) {
+    const id = idByUid.get(workoutUid(athleteId, input.dateYmd));
+    if (id !== undefined) result.set(input.dateYmd, id);
+  }
+  return result;
+}
+
 // Delete a workout calendar event. A 404 is treated as already-gone (success).
 export async function deleteWorkoutEvent(
   creds: IcuCredentials,
   eventId: number,
 ): Promise<void> {
   const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/events/${eventId}`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "DELETE",
     headers: { Authorization: authHeader(creds.apiKey) },
   });
@@ -316,7 +376,7 @@ export async function testConnection(
 ): Promise<{ ok: boolean; name?: string; error?: string }> {
   try {
     const url = `${ICU_BASE_URL}/athlete/${creds.icuAthleteId}/profile`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { Authorization: authHeader(creds.apiKey) },
     });
     if (!res.ok) {

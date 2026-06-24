@@ -31,6 +31,8 @@ import {
   syncWorkoutToIcu,
   syncWeekToIcu,
   deleteWorkoutsFromIcu,
+  withTimeBudget,
+  SYNC_BUDGET_MS,
 } from "./lib/icu-sync.js";
 import {
   getWorkoutSets,
@@ -1855,8 +1857,11 @@ export default async function handler(request: Request, _context: Context) {
             : {}),
         });
 
-        // Mirror the change to intervals.icu (best-effort).
-        await syncWorkoutToIcu(athleteId, updatedWorkout);
+        // Mirror the change to intervals.icu (best-effort, time-bounded).
+        await withTimeBudget(
+          SYNC_BUDGET_MS,
+          syncWorkoutToIcu(athleteId, updatedWorkout),
+        );
 
         return jsonResponseWithCookies(
           {
@@ -2075,9 +2080,12 @@ export default async function handler(request: Request, _context: Context) {
         const weeks = new Set(
           dbWorkouts.map((w) => isoWeekMonday(formatDateString(w.workout_date))),
         );
-        for (const weekStart of weeks) {
-          await syncWeekToIcu(athleteId, weekStart);
-        }
+        await withTimeBudget(
+          SYNC_BUDGET_MS,
+          Promise.all([...weeks].map((weekStart) => syncWeekToIcu(athleteId, weekStart))).then(
+            () => undefined,
+          ),
+        );
 
         return jsonResponseWithCookies(
           {
@@ -2123,7 +2131,10 @@ export default async function handler(request: Request, _context: Context) {
           weekParam,
         );
 
-        await deleteWorkoutsFromIcu(athleteId, toDelete);
+        await withTimeBudget(
+          SYNC_BUDGET_MS,
+          deleteWorkoutsFromIcu(athleteId, toDelete),
+        );
 
         return jsonResponseWithCookies({ success: true, deleted }, newCookies);
       } catch (error) {

@@ -37,6 +37,8 @@ import {
   syncWorkoutToIcu,
   syncWeekToIcu,
   deleteWorkoutsFromIcu,
+  withTimeBudget,
+  SYNC_BUDGET_MS,
 } from "./icu-sync.js";
 
 const STRAVA_ACTIVITY_URL = "https://www.strava.com/activities/";
@@ -951,14 +953,21 @@ export function buildServer(athleteId: number): McpServer {
 
         const effectiveMode = mode ?? "replace";
         if (effectiveMode === "replace") {
-          // Capture existing intervals.icu events before the rows (and their
-          // ids) are replaced, so we can remove the now-orphaned events.
+          // Remaining days are updated in place via the stable date-based uid,
+          // so only remove intervals.icu events for days being dropped.
           const existing = await getTrainingWorkoutsForWeek(
             athleteId,
             week_start,
           );
           await deleteTrainingWorkoutsForWeek(athleteId, week_start);
-          await deleteWorkoutsFromIcu(athleteId, existing);
+          const newDates = new Set(workouts.map((w) => w.date));
+          const removed = existing.filter(
+            (w) => !newDates.has(serializeWorkout(w).workout_date),
+          );
+          await withTimeBudget(
+            SYNC_BUDGET_MS,
+            deleteWorkoutsFromIcu(athleteId, removed),
+          );
         }
 
         const imported = await upsertTrainingWorkoutsBatch(
@@ -973,8 +982,9 @@ export function buildServer(athleteId: number): McpServer {
           })),
         );
 
-        // Mirror the week to intervals.icu (best-effort, no-op if not connected).
-        await syncWeekToIcu(athleteId, week_start);
+        // Mirror the week to intervals.icu in one bulk call (best-effort,
+        // no-op if not connected), bounded so it never blocks the response.
+        await withTimeBudget(SYNC_BUDGET_MS, syncWeekToIcu(athleteId, week_start));
 
         const saved = await getTrainingWorkoutsForWeek(athleteId, week_start);
         return textResult({
@@ -1032,8 +1042,8 @@ export function buildServer(athleteId: number): McpServer {
             workout_text !== undefined ? workout_text : existing.workout_text,
         });
 
-        // Mirror the change to intervals.icu (best-effort).
-        await syncWorkoutToIcu(athleteId, updated);
+        // Mirror the change to intervals.icu (best-effort, time-bounded).
+        await withTimeBudget(SYNC_BUDGET_MS, syncWorkoutToIcu(athleteId, updated));
 
         return textResult({ workout: serializeWorkout(updated) });
       } catch (err) {
@@ -1063,7 +1073,10 @@ export function buildServer(athleteId: number): McpServer {
         // Capture intervals.icu event ids before removing the rows.
         const toDelete = await getTrainingWorkoutsForWeek(athleteId, week_start);
         const deleted = await deleteTrainingWorkoutsForWeek(athleteId, week_start);
-        await deleteWorkoutsFromIcu(athleteId, toDelete);
+        await withTimeBudget(
+          SYNC_BUDGET_MS,
+          deleteWorkoutsFromIcu(athleteId, toDelete),
+        );
         return textResult({ week_start, deleted });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");

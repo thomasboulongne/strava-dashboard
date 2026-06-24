@@ -13,6 +13,7 @@ import {
 } from "./db.js";
 import {
   upsertWorkoutEvent,
+  upsertWorkoutEventsBulk,
   deleteWorkoutEvent,
   workoutToIcuDescription,
   type IcuCredentials,
@@ -23,6 +24,31 @@ function toYmd(workoutDate: Date | string): string {
   return workoutDate instanceof Date
     ? workoutDate.toISOString().slice(0, 10)
     : String(workoutDate).slice(0, 10);
+}
+
+// Overall budget for a sync triggered inline by a write request. Keeps the
+// caller comfortably under the serverless function execution limit (~10s).
+export const SYNC_BUDGET_MS = 9000;
+
+/**
+ * Run a best-effort sync with an overall time budget so a slow intervals.icu
+ * can never make the caller (e.g. an MCP write tool) exceed the function's
+ * execution limit. The sync records its own per-workout errors, so abandoning
+ * it on timeout is safe — the next edit retries.
+ */
+export async function withTimeBudget(
+  ms: number,
+  task: Promise<void>,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([task.catch(() => undefined), budget]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // Resolve the per-athlete context (credentials + power zones/FTP) once so a
@@ -47,12 +73,12 @@ async function loadContext(
 async function pushOne(
   creds: IcuCredentials,
   opts: SerializeOptions,
+  athleteId: number,
   workout: DbTrainingWorkout,
 ): Promise<void> {
   try {
     const description = workoutToIcuDescription(workout, opts);
-    const eventId = await upsertWorkoutEvent(creds, {
-      workoutId: workout.id,
+    const eventId = await upsertWorkoutEvent(creds, athleteId, {
       dateYmd: toYmd(workout.workout_date),
       name: workout.session_name,
       description,
@@ -77,10 +103,11 @@ export async function syncWorkoutToIcu(
 ): Promise<void> {
   const ctx = await loadContext(athleteId);
   if (!ctx) return;
-  await pushOne(ctx.creds, ctx.opts, workout);
+  await pushOne(ctx.creds, ctx.opts, athleteId, workout);
 }
 
-// Push every workout in a week (used after a markdown import / bulk upsert).
+// Push every workout in a week in ONE bulk request, then persist the resulting
+// event ids / errors. Used after a markdown import or a bulk plan upsert.
 export async function syncWeekToIcu(
   athleteId: number,
   weekStart: string,
@@ -88,8 +115,34 @@ export async function syncWeekToIcu(
   const ctx = await loadContext(athleteId);
   if (!ctx) return;
   const workouts = await getTrainingWorkoutsForWeek(athleteId, weekStart);
-  for (const workout of workouts) {
-    await pushOne(ctx.creds, ctx.opts, workout);
+  if (workouts.length === 0) return;
+
+  const inputs = workouts.map((w) => ({
+    dateYmd: toYmd(w.workout_date),
+    name: w.session_name,
+    description: workoutToIcuDescription(w, ctx.opts),
+  }));
+
+  try {
+    const idByDate = await upsertWorkoutEventsBulk(ctx.creds, athleteId, inputs);
+    await Promise.all(
+      workouts.map((w) =>
+        updateWorkoutIcuState(w.id, {
+          icu_event_id: idByDate.get(toYmd(w.workout_date)),
+          icu_sync_error: null,
+        }).catch(() => undefined),
+      ),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown sync error";
+    console.error(`[icu-sync] week ${weekStart} bulk sync failed:`, message);
+    await Promise.all(
+      workouts.map((w) =>
+        updateWorkoutIcuState(w.id, { icu_sync_error: message }).catch(
+          () => undefined,
+        ),
+      ),
+    );
   }
 }
 
@@ -111,12 +164,12 @@ export async function deleteWorkoutsFromIcu(
     apiKey: credsRow.api_key,
   };
 
-  for (const eventId of eventIds) {
-    try {
-      await deleteWorkoutEvent(creds, eventId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error(`[icu-sync] delete event ${eventId} failed:`, message);
-    }
-  }
+  await Promise.all(
+    eventIds.map((eventId) =>
+      deleteWorkoutEvent(creds, eventId).catch((err) => {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error(`[icu-sync] delete event ${eventId} failed:`, message);
+      }),
+    ),
+  );
 }
