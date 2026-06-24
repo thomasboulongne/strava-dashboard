@@ -177,8 +177,9 @@ export function workoutToIcuDescription(
 
   // Emit the canonical intervals.icu block format: a standalone "Nx" line per
   // set followed by its work + recovery steps, blank line around each block.
-  // Warm-up, recovery and cool-down end on a lap-button press ("Press lap");
-  // work intervals stay timed/automatic.
+  // Only the open bracketing steps (warm-up, cool-down) end on a lap-button
+  // press ("Press lap"); the whole repeat block — work AND its in-set recovery —
+  // stays timed/automatic.
   const sets = parseSetsFromText(
     workout.session_name,
     workout.intensity_target ?? null,
@@ -193,7 +194,7 @@ export function workoutToIcuDescription(
       lines.push("");
       lines.push(`${s.count}x`);
       lines.push(`- ${fmtDuration(s.workSec)} ${workPct}`);
-      lines.push(`- ${fmtDuration(recoverySec)} ${recoveryPct} Press lap`);
+      lines.push(`- ${fmtDuration(recoverySec)} ${recoveryPct}`);
     }
     lines.push("");
     lines.push(`- 5m ${recoveryPct} Press lap`);

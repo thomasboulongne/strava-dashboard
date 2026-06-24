@@ -194,8 +194,9 @@ intervals.icu's text format. This is the **preferred** source for the upload:
 - Repeats: put a standalone `Nx` line (e.g. `3x`) BEFORE the work + recovery
   steps, with a blank line before and after the block. Do NOT inline as
   `- 3x10m ...` (intervals.icu ignores inline repeats).
-- Lap button: end warm-up, recovery and cool-down steps with `Press lap` so they
-  end on a lap-button press on the Edge; leave work intervals timed (automatic).
+- Lap button: end ONLY the warm-up and cool-down (and any standalone between-set
+  rest) with `Press lap` so they finish on a lap-button press on the Edge. Keep
+  the whole repeat block — work and its in-set recovery — timed (automatic).
 
 Example:
 
@@ -204,7 +205,7 @@ Example:
 
 3x
 - 10m 88-93%
-- 5m 55% Press lap
+- 5m 55%
 
 - 10m 55% Press lap
 ```
@@ -226,11 +227,11 @@ in `workout_text` (blank line around each block):
 
 3x
 - 10m 88-93%
-- 5m 55% Press lap
+- 5m 55%
 
 2x
 - 20m 76-82%
-- 5m 50% Press lap
+- 5m 50%
 
 - 10m 55% Press lap
 ```

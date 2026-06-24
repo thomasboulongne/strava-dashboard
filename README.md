@@ -149,11 +149,11 @@ request. The background endpoint is protected by a shared secret
 
 Each workout has an optional `workout_text` field in intervals.icu's text
 format. Repeats use a standalone `Nx` line before the work + recovery steps
-(blank line around the block), and warm-up/recovery/cool-down steps end with
-`Press lap` (lap-button) while work intervals stay timed. When set it is
-uploaded verbatim; otherwise a best-effort structure is derived from the
-session/intensity/duration fields. Only workouts with interval structure are
-pushed to Garmin (plain steady rides are skipped). See
+(blank line around the block); only the warm-up and cool-down steps end with
+`Press lap` (lap-button), while the repeat block (work + in-set recovery) stays
+timed. When set it is uploaded verbatim; otherwise a best-effort structure is
+derived from the session/intensity/duration fields. Only workouts with interval
+structure are pushed to Garmin (plain steady rides are skipped). See
 [TRAINING_PLAN_INSTRUCTIONS.md](TRAINING_PLAN_INSTRUCTIONS.md) for the full
 format and examples.
 
