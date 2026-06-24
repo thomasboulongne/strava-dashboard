@@ -28,28 +28,17 @@ import {
   convertToDbWorkouts,
 } from "./lib/training-plan-parser.js";
 import {
-  syncWorkoutToIcu,
-  syncWeekToIcu,
-  deleteWorkoutsFromIcu,
-  withTimeBudget,
-  SYNC_BUDGET_MS,
-} from "./lib/icu-sync.js";
+  dispatchSyncWeek,
+  dispatchSyncWeekForDate,
+  dispatchDeleteEvents,
+  eventIdsOf,
+  isoWeekMonday,
+} from "./lib/icu-dispatch.js";
 import {
   getWorkoutSets,
   flattenSets,
   type ExpectedInterval,
 } from "./lib/workout-structure.js";
-
-/**
- * ISO-week Monday (YYYY-MM-DD) for a given YYYY-MM-DD date string.
- */
-function isoWeekMonday(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  const day = (dt.getUTCDay() + 6) % 7; // 0 = Monday
-  dt.setUTCDate(dt.getUTCDate() - day);
-  return dt.toISOString().slice(0, 10);
-}
 
 /**
  * Format a date to YYYY-MM-DD (handles both Date objects and strings)
@@ -1857,10 +1846,10 @@ export default async function handler(request: Request, _context: Context) {
             : {}),
         });
 
-        // Mirror the change to intervals.icu (best-effort, time-bounded).
-        await withTimeBudget(
-          SYNC_BUDGET_MS,
-          syncWorkoutToIcu(athleteId, updatedWorkout),
+        // Decouple intervals.icu sync (runs in the background function).
+        await dispatchSyncWeekForDate(
+          athleteId,
+          formatDateString(updatedWorkout.workout_date),
         );
 
         return jsonResponseWithCookies(
@@ -2080,11 +2069,8 @@ export default async function handler(request: Request, _context: Context) {
         const weeks = new Set(
           dbWorkouts.map((w) => isoWeekMonday(formatDateString(w.workout_date))),
         );
-        await withTimeBudget(
-          SYNC_BUDGET_MS,
-          Promise.all([...weeks].map((weekStart) => syncWeekToIcu(athleteId, weekStart))).then(
-            () => undefined,
-          ),
+        await Promise.all(
+          [...weeks].map((weekStart) => dispatchSyncWeek(athleteId, weekStart)),
         );
 
         return jsonResponseWithCookies(
@@ -2131,10 +2117,7 @@ export default async function handler(request: Request, _context: Context) {
           weekParam,
         );
 
-        await withTimeBudget(
-          SYNC_BUDGET_MS,
-          deleteWorkoutsFromIcu(athleteId, toDelete),
-        );
+        await dispatchDeleteEvents(athleteId, eventIdsOf(toDelete));
 
         return jsonResponseWithCookies({ success: true, deleted }, newCookies);
       } catch (error) {

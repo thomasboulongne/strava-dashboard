@@ -90,6 +90,7 @@ annotations (`readOnlyHint: false`, `destructiveHint` where relevant), so ChatGP
 asks for confirmation before calling them. Every write is scoped to the key's athlete.
 
 - `upsert_training_plan` — create/replace a week's plan from structured workouts (`mode: replace | merge`); accepts an optional `workout_text` (intervals.icu DSL) per workout for Garmin sync
+- `import_training_plan_markdown` — create/replace a week's plan from a markdown table (flat-input alternative to `upsert_training_plan`)
 - `update_workout` — edit a single workout's fields by id (including `workout_text`)
 - `delete_training_plan` — clear a week's plan (destructive)
 - `link_activity_to_workout` / `unlink_activity_from_workout` — manage activity links
@@ -131,6 +132,18 @@ forwards it to Garmin Connect and your Edge.
 
 Credentials are stored per athlete in the `intervals_icu_credentials` table; no
 environment variables are required. Disconnect anytime from the same page.
+
+### How the sync runs (decoupled)
+
+To keep plan writes fast, the actual upload to intervals.icu is **decoupled**
+from the request. When a workout is created/updated/deleted (via the UI, REST,
+or the MCP connector), the handler writes to the database and then fires the
+`icu-sync-background` [Netlify Background Function](https://docs.netlify.com/functions/background-functions/),
+which performs the intervals.icu calls asynchronously (up to 15 min) and records
+the result on each workout (`icu_event_id` / `icu_sync_error`). A slow or
+unreachable intervals.icu therefore never blocks (or times out) the originating
+request. The background endpoint is protected by a shared secret
+(`ICU_SYNC_SECRET`, optional — see `.env.example`).
 
 ### Workout format
 

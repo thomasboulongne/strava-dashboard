@@ -26,47 +26,6 @@ function toYmd(workoutDate: Date | string): string {
     : String(workoutDate).slice(0, 10);
 }
 
-// Overall budget for a sync triggered inline by a write request. Keeps the
-// caller comfortably under the serverless function execution limit (~10s).
-export const SYNC_BUDGET_MS = 9000;
-
-/**
- * Run a best-effort sync with an overall time budget so a slow intervals.icu
- * can never make the caller (e.g. an MCP write tool) exceed the function's
- * execution limit. The sync records its own per-workout errors, so abandoning
- * it on timeout is safe — the next edit retries.
- */
-export async function withTimeBudget(
-  ms: number,
-  task: Promise<void>,
-): Promise<void> {
-  const start = Date.now();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = true;
-  const budget = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, ms);
-  });
-  const wrapped = task
-    .catch((err) => {
-      console.error("[icu-sync] task error:", err);
-    })
-    .then(() => {
-      timedOut = false;
-    });
-  try {
-    await Promise.race([wrapped, budget]);
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (timedOut) {
-      console.warn(
-        `[icu-sync] sync exceeded ${ms}ms budget — returning; sync continues best-effort`,
-      );
-    } else {
-      console.log(`[icu-sync] sync finished in ${Date.now() - start}ms`);
-    }
-  }
-}
-
 // Resolve the per-athlete context (credentials + power zones/FTP) once so a
 // batch sync doesn't refetch it per workout. Returns null when not connected.
 async function loadContext(

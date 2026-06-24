@@ -34,12 +34,16 @@ import {
   localStartTime,
 } from "./metrics.js";
 import {
-  syncWorkoutToIcu,
-  syncWeekToIcu,
-  deleteWorkoutsFromIcu,
-  withTimeBudget,
-  SYNC_BUDGET_MS,
-} from "./icu-sync.js";
+  dispatchSyncWeek,
+  dispatchSyncWeekForDate,
+  dispatchDeleteEvents,
+  eventIdsOf,
+  isoWeekMonday,
+} from "./icu-dispatch.js";
+import {
+  parseTrainingPlanTable,
+  convertToDbWorkouts,
+} from "./training-plan-parser.js";
 
 const STRAVA_ACTIVITY_URL = "https://www.strava.com/activities/";
 
@@ -316,9 +320,12 @@ function finalizeTotals(t: TotalsAcc) {
 
 // --- Tool result helper ------------------------------------------------------
 
-function textResult(payload: unknown) {
+function textResult(payload: Record<string, unknown>) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+    // Also return structured output so tools with an outputSchema validate and
+    // ChatGPT can consume the result as structured data, not just text.
+    structuredContent: payload,
   };
 }
 
@@ -374,6 +381,10 @@ export function buildServer(athleteId: number): McpServer {
     "list_activities",
     {
       title: "List activities",
+      outputSchema: {
+        count: z.number(),
+        activities: z.array(z.unknown()),
+      },
       description:
         "List the athlete's recent Strava activities (most recent first) as compact summaries. Supports date and sport-type filtering. Use this to understand recent training load before building a plan.",
       inputSchema: {
@@ -432,6 +443,11 @@ export function buildServer(athleteId: number): McpServer {
     "get_activity",
     {
       title: "Get activity detail",
+      outputSchema: {
+        activity: z.unknown(),
+        laps: z.array(z.unknown()).optional(),
+        streams_summary: z.unknown().optional(),
+      },
       description:
         "Get the full detail for a single activity by its Strava ID, optionally including lap splits and a heart-rate/power stream summary (averages, max, and time-in-zone). Use this to analyze a specific session.",
       inputSchema: {
@@ -480,6 +496,15 @@ export function buildServer(athleteId: number): McpServer {
     "get_activity_summary",
     {
       title: "Summarize training load",
+      outputSchema: {
+        range: z.unknown(),
+        ftp: z.number().nullable(),
+        ftp_source: z.string().nullable(),
+        load: z.unknown(),
+        overall: z.unknown(),
+        by_week: z.array(z.unknown()),
+        by_sport: z.array(z.unknown()),
+      },
       description:
         "Aggregate cycling-aware training load over a date range, grouped by ISO week and by sport. Each bucket includes volume (distance, time, elevation), relative effort (Strava suffer score), power metrics (TSS, kilojoules, weighted-average watts, intensity factor), HR, and ride/power-ride/indoor counts. Also returns an overall acute (7-day) vs chronic (28-day) load with ramp ratio to flag overtraining, plus which weeks have a saved weekly report. Default range is the last 8 weeks; pass `after` for longer windows (e.g. 6 months).",
       inputSchema: {
@@ -584,6 +609,12 @@ export function buildServer(athleteId: number): McpServer {
     "get_athlete_zones",
     {
       title: "Get heart-rate and power zones",
+      outputSchema: {
+        heart_rate_zones: z.array(z.unknown()).nullable(),
+        heart_rate_custom: z.boolean().optional(),
+        power_zones: z.array(z.unknown()).nullable(),
+        updated_at: z.unknown().optional(),
+      },
       description:
         "Get the athlete's configured heart-rate and power zone ranges. Use these to interpret time-in-zone data and to prescribe intensity targets.",
       inputSchema: {},
@@ -611,6 +642,12 @@ export function buildServer(athleteId: number): McpServer {
     "get_athlete_profile",
     {
       title: "Get athlete profile",
+      outputSchema: {
+        id: z.number(),
+        username: z.string().nullable(),
+        firstname: z.string(),
+        lastname: z.string(),
+      },
       description:
         "Get the athlete's basic profile (name and Strava ID). Contains no credentials.",
       inputSchema: {},
@@ -637,6 +674,9 @@ export function buildServer(athleteId: number): McpServer {
     "search",
     {
       title: "Search activities",
+      outputSchema: {
+        results: z.array(z.unknown()),
+      },
       description:
         "Search the athlete's activities by keyword (matches activity name or type). Returns a list of {id, title, url} results that can be passed to `fetch`.",
       inputSchema: {
@@ -678,6 +718,13 @@ export function buildServer(athleteId: number): McpServer {
     "fetch",
     {
       title: "Fetch activity document",
+      outputSchema: {
+        id: z.string(),
+        title: z.string(),
+        url: z.string(),
+        text: z.string(),
+        metadata: z.unknown(),
+      },
       description:
         "Fetch the full detail document for a single activity by ID (as returned by `search`). Includes the activity summary, laps, and stream summary.",
       inputSchema: {
@@ -725,6 +772,11 @@ export function buildServer(athleteId: number): McpServer {
     "export_activities",
     {
       title: "Export activities (bulk)",
+      outputSchema: {
+        range: z.unknown(),
+        count: z.number(),
+        activities: z.array(z.unknown()),
+      },
       description:
         "Export many activities over a date range as compact, cycling-focused rows (up to 1000, no 50-item cap). Each row includes date, local start time, day of week, sport, indoor flag, duration, distance, elevation, HR, power (avg/weighted/max watts, kilojoules, cadence, power-meter flag), relative effort, and commute/trainer flags. Use this for habit analysis (training days, time of day, frequency, rest days, streaks) and per-ride power/effort review across long windows like 6 months.",
       inputSchema: {
@@ -817,6 +869,10 @@ export function buildServer(athleteId: number): McpServer {
     "get_weekly_reports",
     {
       title: "Get weekly reports",
+      outputSchema: {
+        count: z.number(),
+        reports: z.array(z.unknown()),
+      },
       description:
         "Get the athlete's saved weekly reports (markdown notes / coach feedback) over a date range, newest first. These provide qualitative context — how training felt, intent, and plans — to complement the quantitative data when building a training plan.",
       inputSchema: {
@@ -860,6 +916,11 @@ export function buildServer(athleteId: number): McpServer {
     "get_training_plan",
     {
       title: "Get training plan for a week",
+      outputSchema: {
+        week_start: z.string(),
+        count: z.number(),
+        workouts: z.array(z.unknown()),
+      },
       description:
         "Get the planned workouts for the ISO week starting on `week_start` (a Monday, YYYY-MM-DD), including each workout's id (needed to edit it), target duration/intensity, notes, and any matched activity.",
       inputSchema: {
@@ -892,8 +953,14 @@ export function buildServer(athleteId: number): McpServer {
     "upsert_training_plan",
     {
       title: "Upsert weekly training plan",
+      outputSchema: {
+        week_start: z.string(),
+        mode: z.string(),
+        imported: z.number(),
+        workouts: z.array(z.unknown()),
+      },
       description:
-        "Create or replace the training plan for the ISO week starting on `week_start` (Monday). Provide structured `workouts`; each date must fall within that week. mode='replace' (default) clears the week first then inserts; mode='merge' overwrites only the given days and keeps the rest. Writes to the athlete's plan.",
+        "Save a whole week's training plan in ONE call. After drafting a plan, call this to persist it (it is also auto-synced to intervals.icu/Garmin). Create or replace the plan for the ISO week starting on `week_start` (Monday); provide structured `workouts` whose dates fall within that week. mode='replace' (default) clears the week first then inserts; mode='merge' overwrites only the given days and keeps the rest. If you have the plan as a markdown table instead, use import_training_plan_markdown.",
       inputSchema: {
         week_start: z
           .string()
@@ -907,18 +974,15 @@ export function buildServer(athleteId: number): McpServer {
                 .number()
                 .int()
                 .positive()
-                .nullable()
                 .optional()
                 .describe("Target duration in minutes"),
               intensity_target: z
                 .string()
-                .nullable()
                 .optional()
                 .describe("Intensity target, e.g. 'Z2', '3x10min @ threshold', '200-220W'"),
-              notes: z.string().nullable().optional(),
+              notes: z.string().optional(),
               workout_text: z
                 .string()
-                .nullable()
                 .optional()
                 .describe(
                   "intervals.icu workout description in its text DSL, one step per line, e.g. '- 15m 55-75%\\n- 3x10m 88-93% 5m 55%\\n- 10m 55%'. When set, this is pushed verbatim to intervals.icu/Garmin; otherwise a best-effort structure is derived from session_name/intensity_target.",
@@ -967,10 +1031,7 @@ export function buildServer(athleteId: number): McpServer {
           const removed = existing.filter(
             (w) => !newDates.has(serializeWorkout(w).workout_date),
           );
-          await withTimeBudget(
-            SYNC_BUDGET_MS,
-            deleteWorkoutsFromIcu(athleteId, removed),
-          );
+          await dispatchDeleteEvents(athleteId, eventIdsOf(removed));
         }
 
         const imported = await upsertTrainingWorkoutsBatch(
@@ -986,11 +1047,11 @@ export function buildServer(athleteId: number): McpServer {
         );
 
         console.log(
-          `[tool upsert_training_plan] imported ${imported} row(s); starting intervals.icu sync`,
+          `[tool upsert_training_plan] imported ${imported} row(s); dispatching intervals.icu sync`,
         );
-        // Mirror the week to intervals.icu in one bulk call (best-effort,
-        // no-op if not connected), bounded so it never blocks the response.
-        await withTimeBudget(SYNC_BUDGET_MS, syncWeekToIcu(athleteId, week_start));
+        // Hand the intervals.icu sync to the background function so this tool
+        // returns immediately (never blocked by intervals.icu).
+        await dispatchSyncWeek(athleteId, week_start);
         console.log(`[tool upsert_training_plan] done`);
 
         const saved = await getTrainingWorkoutsForWeek(athleteId, week_start);
@@ -1007,20 +1068,75 @@ export function buildServer(athleteId: number): McpServer {
   );
 
   server.registerTool(
+    "import_training_plan_markdown",
+    {
+      title: "Import training plan (markdown)",
+      description:
+        "Create/replace a week's training plan from a markdown table with columns: Day | Session | Duration | Intensity target | Notes. A simpler, flat-input alternative to upsert_training_plan when you already have the plan as a table. Saved workouts are auto-synced to intervals.icu/Garmin (intensity is auto-converted). For precise multi-set workouts on Garmin, prefer upsert_training_plan with workout_text.",
+      inputSchema: {
+        reference_date: z
+          .string()
+          .describe(
+            "Any date within the target week, YYYY-MM-DD (used to resolve the weekday rows to calendar dates)",
+          ),
+        markdown: z.string().describe("Markdown table of the week's workouts"),
+      },
+      outputSchema: {
+        imported: z.number(),
+        weeks: z.array(z.string()),
+        parse_errors: z.array(z.string()),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ reference_date, markdown }) => {
+      try {
+        if (!DATE_RE.test(reference_date)) {
+          return errorResult("reference_date must be YYYY-MM-DD");
+        }
+        const parsed = parseTrainingPlanTable(markdown);
+        if (parsed.workouts.length === 0) {
+          return errorResult(
+            `No workouts found in the table. ${parsed.errors.join("; ")}`,
+          );
+        }
+        const [y, m, d] = reference_date.split("-").map(Number);
+        const refDate = new Date(Date.UTC(y, m - 1, d));
+        const dbWorkouts = convertToDbWorkouts(parsed, athleteId, refDate);
+        const imported = await upsertTrainingWorkoutsBatch(dbWorkouts);
+
+        const weeks = [
+          ...new Set(dbWorkouts.map((w) => isoWeekMonday(w.workout_date))),
+        ];
+        await Promise.all(weeks.map((wk) => dispatchSyncWeek(athleteId, wk)));
+
+        return textResult({
+          imported,
+          weeks,
+          parse_errors: parsed.errors,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
     "update_workout",
     {
       title: "Update a workout",
+      outputSchema: {
+        workout: z.unknown(),
+      },
       description:
         "Update a single planned workout by its id (from get_training_plan). Only the fields you provide are changed. Use this to tweak a session's name, target duration, intensity, or notes.",
       inputSchema: {
         workout_id: z.number().int().describe("Workout id from get_training_plan"),
         session_name: z.string().optional(),
-        duration_target_minutes: z.number().int().positive().nullable().optional(),
-        intensity_target: z.string().nullable().optional(),
-        notes: z.string().nullable().optional(),
+        duration_target_minutes: z.number().int().positive().optional(),
+        intensity_target: z.string().optional(),
+        notes: z.string().optional(),
         workout_text: z
           .string()
-          .nullable()
           .optional()
           .describe(
             "intervals.icu workout description in its text DSL (one step per line). When set, pushed verbatim to intervals.icu/Garmin.",
@@ -1050,8 +1166,11 @@ export function buildServer(athleteId: number): McpServer {
             workout_text !== undefined ? workout_text : existing.workout_text,
         });
 
-        // Mirror the change to intervals.icu (best-effort, time-bounded).
-        await withTimeBudget(SYNC_BUDGET_MS, syncWorkoutToIcu(athleteId, updated));
+        // Decouple the intervals.icu sync (runs in the background function).
+        await dispatchSyncWeekForDate(
+          athleteId,
+          serializeWorkout(updated).workout_date,
+        );
 
         return textResult({ workout: serializeWorkout(updated) });
       } catch (err) {
@@ -1064,6 +1183,10 @@ export function buildServer(athleteId: number): McpServer {
     "delete_training_plan",
     {
       title: "Delete a week's training plan",
+      outputSchema: {
+        week_start: z.string(),
+        deleted: z.number(),
+      },
       description:
         "Delete all planned workouts for the ISO week starting on `week_start` (Monday). Destructive; use with care.",
       inputSchema: {
@@ -1082,10 +1205,7 @@ export function buildServer(athleteId: number): McpServer {
         // Capture intervals.icu event ids before removing the rows.
         const toDelete = await getTrainingWorkoutsForWeek(athleteId, week_start);
         const deleted = await deleteTrainingWorkoutsForWeek(athleteId, week_start);
-        await withTimeBudget(
-          SYNC_BUDGET_MS,
-          deleteWorkoutsFromIcu(athleteId, toDelete),
-        );
+        await dispatchDeleteEvents(athleteId, eventIdsOf(toDelete));
         return textResult({ week_start, deleted });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
@@ -1097,6 +1217,9 @@ export function buildServer(athleteId: number): McpServer {
     "link_activity_to_workout",
     {
       title: "Link an activity to a workout",
+      outputSchema: {
+        workout: z.unknown(),
+      },
       description:
         "Manually link a completed activity to a planned workout (both must belong to you). Use after confirming which session an activity corresponds to.",
       inputSchema: {
@@ -1127,6 +1250,9 @@ export function buildServer(athleteId: number): McpServer {
     "unlink_activity_from_workout",
     {
       title: "Unlink an activity from a workout",
+      outputSchema: {
+        workout: z.unknown(),
+      },
       description:
         "Remove the activity link from a planned workout (yours only).",
       inputSchema: {
@@ -1154,6 +1280,11 @@ export function buildServer(athleteId: number): McpServer {
     "upsert_weekly_report",
     {
       title: "Save weekly report",
+      outputSchema: {
+        week_start: z.string(),
+        title: z.string(),
+        saved: z.boolean(),
+      },
       description:
         "Create or replace the saved weekly report for the week starting on `week_start` (Monday, YYYY-MM-DD). Provide a `title` and the full `markdown` body. Use this to upload a report you generated from the week's activities and private notes.",
       inputSchema: {
