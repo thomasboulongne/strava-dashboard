@@ -204,3 +204,35 @@ converted using the athlete's power zones, falling back to standard %FTP zone
 ranges). For precise control over what reaches Garmin, set `workout_text`
 explicitly (in the plan edit modal, or via the MCP `workout_text` argument on
 `upsert_training_plan` / `update_workout`).
+
+### Multiple sets of intervals
+
+Workouts with more than one set are fully supported. The cleanest way is one
+repeat line per set in `workout_text`:
+
+```
+- 15m 55-75%
+- 3x10m 88-93% 5m 55%
+- 2x20m 76-82% 5m 50%
+- 10m 55%
+```
+
+This uploads as warm-up -> 3x10min threshold -> 2x20min tempo -> cool-down.
+
+You can also express multiple sets in the free-text `Intensity target` (used
+both for the auto-generated Garmin workout and for compliance) by separating
+the blocks, e.g.:
+
+- `3x10min @ Z4 / 3min then 2x20min @ Z3 / 5min`
+
+Each block keeps its own intensity and recovery.
+
+### Compliance for multi-set workouts
+
+Compliance is computed per interval against that interval's own target duration
+and zone, so multi-set sessions are scored accurately. This relies on the
+activity having **laps** (one per step) — which is exactly what a structured
+workout run from Garmin produces. If a multi-set workout has no usable laps, the
+app falls back to overall duration/intensity compliance instead of a per-interval
+breakdown. Single-set workouts additionally fall back to HR/power
+stream-detection when laps are missing.

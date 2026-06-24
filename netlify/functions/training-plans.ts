@@ -32,6 +32,11 @@ import {
   syncWeekToIcu,
   deleteWorkoutsFromIcu,
 } from "./lib/icu-sync.js";
+import {
+  getWorkoutSets,
+  flattenSets,
+  type ExpectedInterval,
+} from "./lib/workout-structure.js";
 
 /**
  * ISO-week Monday (YYYY-MM-DD) for a given YYYY-MM-DD date string.
@@ -394,150 +399,6 @@ function parsePowerTarget(
     }
   }
 
-  return null;
-}
-
-/**
- * Parsed interval structure from workout text
- */
-interface ParsedIntervalStructure {
-  count: number;
-  durationSec: number;
-  targetZone: number | null;
-  rawText: string;
-  recoveryDurationSec?: number; // Optional recovery time between intervals
-}
-
-/**
- * Parse interval structure from text (e.g., "3x10min tempo", "6x1' hard", "4x5mins Z4")
- * Searches session_name and intensity_target fields only (notes are ignored for flexibility)
- */
-function parseIntervalStructure(
-  sessionName: string,
-  intensityTarget: string | null,
-): ParsedIntervalStructure | null {
-  console.log(`[parseIntervalStructure] Parsing: sessionName="${sessionName}", intensity="${intensityTarget}"`);
-
-  // Combine text sources to search (notes excluded for flexibility)
-  const textSources = [sessionName, intensityTarget].filter(Boolean);
-
-  // Pattern: NxDURATION [UNIT] [@ INTENSITY]
-  // Examples: 3x10min, 6x1', 4x5mins Z4, 5x2min @ threshold, 3x10' tempo
-  // Note: Also matches × (multiplication sign U+00D7) as well as x
-  const patterns = [
-    // 3x10min, 3x10mins, 3x10minute, 3x10minutes (with x or ×)
-    /(\d+)\s*[x×]\s*(\d+)\s*(min(?:ute)?s?)\s*(?:@\s*)?(\S+)?/i,
-    // 3x10' (single quote for minutes, with x or ×)
-    /(\d+)\s*[x×]\s*(\d+)\s*['′]\s*(?:@\s*)?(\S+)?/i,
-    // 3x30sec, 3x30secs, 3x30second, 3x30seconds (with x or ×)
-    /(\d+)\s*[x×]\s*(\d+)\s*(sec(?:ond)?s?)\s*(?:@\s*)?(\S+)?/i,
-    // 3x30" (double quote for seconds, with x or ×)
-    /(\d+)\s*[x×]\s*(\d+)\s*["″]\s*(?:@\s*)?(\S+)?/i,
-  ];
-
-  for (const text of textSources) {
-    if (!text) continue;
-
-    console.log(`[parseIntervalStructure] Checking text: "${text}"`);
-
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match) {
-        console.log(`[parseIntervalStructure] Pattern matched! Match:`, match);
-        const count = parseInt(match[1], 10);
-        const duration = parseInt(match[2], 10);
-        const unit = match[3]?.toLowerCase() || "";
-        const intensityPart = match[4] || match[3]; // Intensity might be in different capture group
-
-        // Convert to seconds
-        let durationSec: number;
-        if (unit.includes("sec") || unit === '"' || unit === "″") {
-          durationSec = duration;
-        } else {
-          // Default to minutes
-          durationSec = duration * 60;
-        }
-
-        // IMPORTANT: Parse recovery time FIRST and remove it from text before parsing intensity
-        // This prevents "recovery" keyword from being interpreted as Zone 1
-        // Patterns: "/ 3min recovery", "with 2min rest", "(3min recovery)", "/ 2min easy"
-        let recoveryDurationSec: number | undefined = undefined;
-        let textWithoutRecovery = text; // Clean text without recovery pattern
-
-        const recoveryPatterns = [
-          // "/ 3min recovery" or "/ 3min rest" or "/ 3min easy"
-          /\/\s*(\d+)\s*(min(?:ute)?s?|sec(?:ond)?s?|['′"])\s*(?:recovery|rest|easy)?/i,
-          // "with 3min recovery" or "with 3min rest"
-          /with\s+(\d+)\s*(min(?:ute)?s?|sec(?:ond)?s?|['′"])\s*(?:recovery|rest|easy)?/i,
-          // "(3min recovery)" or "(3min rest)"
-          /\(\s*(\d+)\s*(min(?:ute)?s?|sec(?:ond)?s?|['′"])\s*(?:recovery|rest|easy)?\s*\)/i,
-        ];
-
-        for (const recoveryPattern of recoveryPatterns) {
-          const recoveryMatch = text.match(recoveryPattern);
-          if (recoveryMatch) {
-            const recoveryDuration = parseInt(recoveryMatch[1], 10);
-            const recoveryUnit = recoveryMatch[2]?.toLowerCase() || "";
-
-            // Convert to seconds
-            if (
-              recoveryUnit.includes("sec") ||
-              recoveryUnit === '"' ||
-              recoveryUnit === "″"
-            ) {
-              recoveryDurationSec = recoveryDuration;
-            } else {
-              // Default to minutes
-              recoveryDurationSec = recoveryDuration * 60;
-            }
-
-            // Validate reasonable recovery time (10 sec to 30 min)
-            if (recoveryDurationSec < 10 || recoveryDurationSec > 1800) {
-              recoveryDurationSec = undefined;
-            } else {
-              // Remove recovery pattern from text to avoid "recovery" keyword interfering with intensity parsing
-              textWithoutRecovery = text.replace(recoveryPattern, '').trim();
-              console.log(`[parseIntervalStructure] Extracted recovery: ${recoveryDurationSec}sec, cleaned text: "${textWithoutRecovery}"`);
-            }
-            break;
-          }
-        }
-
-        // Now parse target zone from cleaned text (without recovery pattern)
-        let targetZone: number | null = null;
-        if (intensityPart) {
-          targetZone = parseIntensityToZone(intensityPart);
-        }
-        if (targetZone === null && intensityTarget) {
-          // Parse from cleaned intensity target (with recovery pattern removed)
-          const cleanedIntensityTarget = intensityTarget === text ? textWithoutRecovery : intensityTarget;
-          targetZone = parseIntensityToZone(cleanedIntensityTarget);
-        }
-
-        // Validate reasonable values
-        if (
-          count >= 1 &&
-          count <= 20 &&
-          durationSec >= 10 &&
-          durationSec <= 3600
-        ) {
-          const result = {
-            count,
-            durationSec,
-            targetZone,
-            rawText: match[0],
-            recoveryDurationSec,
-          };
-          console.log(`[parseIntervalStructure] Successfully parsed:`, result);
-          return result;
-        } else {
-          console.log(`[parseIntervalStructure] Validation failed: count=${count}, durationSec=${durationSec}`);
-        }
-      }
-    }
-  }
-
-  console.log(`[parseIntervalStructure] No interval structure found`);
   return null;
 }
 
@@ -1017,14 +878,23 @@ function isRecoveryLap(
  */
 async function mapLapsToIntervals(
   activityId: number,
-  expectedCount: number,
-  expectedDurationSec: number,
-  targetZone: number,
+  expected: ExpectedInterval[],
   hrZones: HRZoneRange[],
   powerZones: Array<{ min: number; max: number }> | null,
-  expectedRecoveryDurationSec?: number, // NEW: expected recovery duration from training plan
 ): Promise<IntervalComplianceResult | null> {
   try {
+    const expectedCount = expected.length;
+    if (expectedCount === 0) return null;
+
+    // Representative values for the warm-up/cool-down and recovery heuristics.
+    // For a single-set workout these equal that set's values (no behaviour
+    // change); for multi-set workouts each interval is still scored against its
+    // OWN target duration/zone in the final loop below.
+    const expectedDurationSec = Math.min(...expected.map((e) => e.durationSec));
+    const targetZone = Math.min(...expected.map((e) => e.targetZone));
+    const expectedRecoveryDurationSec =
+      expected.find((e) => e.recoverySec != null)?.recoverySec ?? undefined;
+
     // Fetch laps for this activity
     const laps = await getLapsForActivity(activityId);
 
@@ -1207,15 +1077,18 @@ async function mapLapsToIntervals(
 
     for (let i = 0; i < expectedCount; i++) {
       const lap = lapsToAnalyze[i];
+      // Each interval is scored against its OWN set's target (multi-set aware).
+      const intervalDurationSec = expected[i].durationSec;
+      const intervalTargetZone = expected[i].targetZone;
 
       if (!lap) {
         // Missing interval
         intervalResults.push({
           index: i + 1,
           durationSec: 0,
-          targetDurationSec: expectedDurationSec,
+          targetDurationSec: intervalDurationSec,
           avgHR: 0,
-          targetZone,
+          targetZone: intervalTargetZone,
           status: "missing",
         });
         // 0 points for missing
@@ -1258,10 +1131,10 @@ async function mapLapsToIntervals(
           }
         }
 
-        // Calculate status
-        const durationRatio = durationSec / expectedDurationSec;
-        const zoneMatch = actualZone === targetZone;
-        const zoneClose = Math.abs(actualZone - targetZone) === 1;
+        // Calculate status against this interval's own target
+        const durationRatio = durationSec / intervalDurationSec;
+        const zoneMatch = actualZone === intervalTargetZone;
+        const zoneClose = Math.abs(actualZone - intervalTargetZone) === 1;
 
         let status: "completed" | "too_short" | "too_long" | "wrong_zone";
         let intervalScore = 0;
@@ -1286,11 +1159,11 @@ async function mapLapsToIntervals(
         intervalResults.push({
           index: i + 1,
           durationSec: Math.round(durationSec),
-          targetDurationSec: expectedDurationSec,
+          targetDurationSec: intervalDurationSec,
           avgHR: Math.round(avgHR),
           maxHR: maxHR ? Math.round(maxHR) : undefined,
           avgPower: avgPower ? Math.round(avgPower) : undefined,
-          targetZone,
+          targetZone: intervalTargetZone,
           status,
           lapIndex: lap.lap_index,
         });
@@ -1306,8 +1179,8 @@ async function mapLapsToIntervals(
       expected: expectedCount,
       completed: completedCount,
       score: Math.round(intervalScoreSum / expectedCount),
-      targetDurationSec: expectedDurationSec,
-      targetZone,
+      targetDurationSec: expected[0].durationSec,
+      targetZone: expected[0].targetZone,
       source: "laps" as const,
       intervals: intervalResults,
     };
@@ -1595,36 +1468,36 @@ async function calculateCompliance(
     }
   }
 
-  // Interval compliance - parse and analyze interval structure
-  const intervalStructure = parseIntervalStructure(
-    workout.session_name,
-    workout.intensity_target,
-  );
+  // Interval compliance - parse and analyze interval structure (multi-set aware).
+  // Sets come from the intervals.icu workout_text DSL when present, else the
+  // free-text fields.
+  const workoutSets = getWorkoutSets(workout);
+  const expectedIntervals = flattenSets(workoutSets);
 
-  console.log(`[calculateCompliance] Activity ${activity.id}: Parsed interval structure:`, intervalStructure);
-  console.log(`[calculateCompliance] Workout: session_name="${workout.session_name}", intensity="${workout.intensity_target}"`);
+  console.log(`[calculateCompliance] Activity ${activity.id}: Parsed ${workoutSets.length} set(s), ${expectedIntervals.length} expected interval(s)`);
+  console.log(`[calculateCompliance] Workout: session_name="${workout.session_name}", intensity="${workout.intensity_target}", workout_text=${workout.workout_text ? "set" : "none"}`);
 
-  if (intervalStructure && hrZones && hrZones.length >= 5) {
-    const targetZone = intervalStructure.targetZone ?? 3; // Default to Zone 3 (tempo)
-
+  if (expectedIntervals.length > 0 && hrZones && hrZones.length >= 5) {
     console.log(`[calculateCompliance] Attempting to map laps to intervals for activity ${activity.id}`);
 
-    // Try laps first - they're more reliable if available
+    // Try laps first - they're more reliable if available and are produced
+    // per-step by structured Garmin workouts, so multi-set maps cleanly.
     intervalsCompliance = await mapLapsToIntervals(
       activity.id,
-      intervalStructure.count,
-      intervalStructure.durationSec,
-      targetZone,
+      expectedIntervals,
       hrZones,
       powerZones,
-      intervalStructure.recoveryDurationSec, // Pass expected recovery duration
     );
 
     console.log(`[calculateCompliance] mapLapsToIntervals result:`, intervalsCompliance ? `source=${intervalsCompliance.source}, score=${intervalsCompliance.score}` : 'null (falling back to stream detection)');
 
-    // Fall back to stream detection if laps aren't available or didn't work
-    // Prioritize power detection when power zones and power data are available
-    if (!intervalsCompliance) {
+    // Stream-detection fallback (no usable laps). This path only supports a
+    // single interval block, so it's restricted to single-set workouts; multi-set
+    // workouts without laps fall back to overall duration/intensity compliance.
+    if (!intervalsCompliance && workoutSets.length === 1) {
+      const set = workoutSets[0];
+      const intervalStructure = { count: set.count, durationSec: set.workSec };
+      const targetZone = set.targetZone ?? 3; // Default to Zone 3 (tempo)
       try {
         // Fetch activity streams for detailed analysis
         const streams = await getActivityStreams(activity.id);

@@ -5,6 +5,7 @@
 // and sent in the `description` field. We push each planned workout as a Ride
 // WORKOUT calendar event; intervals.icu then forwards it to Garmin Connect.
 import type { DbTrainingWorkout } from "./db.js";
+import { parseSetsFromText } from "./workout-structure.js";
 
 const ICU_BASE_URL = "https://intervals.icu/api/v1";
 
@@ -188,6 +189,28 @@ export function workoutToIcuDescription(
     textToPct(workout.intensity_target, opts) ??
     textToPct(workout.session_name, opts) ??
     zoneToPct(2, opts);
+
+  // Multi-set workouts (e.g. "3x10min @ Z4 then 2x20min @ Z3"): emit one repeat
+  // line per set, bracketed by a light warm-up / cool-down.
+  const sets = parseSetsFromText(
+    workout.session_name,
+    workout.intensity_target ?? null,
+  );
+  if (sets.length > 1) {
+    const lines = [`- 10m ${fmtPct(zoneToPct(2, opts))}`];
+    for (const s of sets) {
+      const workPct = fmtPct(zoneToPct(s.targetZone ?? 3, opts));
+      const recoveryPct = fmtPct(zoneToPct(1, opts));
+      const recoverySec = s.recoverySec ?? 180;
+      lines.push(
+        `- ${s.count}x${fmtDuration(s.workSec)} ${workPct} ${fmtDuration(
+          recoverySec,
+        )} ${recoveryPct}`,
+      );
+    }
+    lines.push(`- 5m ${fmtPct(zoneToPct(1, opts))}`);
+    return lines.join("\n");
+  }
 
   const structure = parseIntervalStructure(combined);
   if (structure) {
