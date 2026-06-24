@@ -359,21 +359,49 @@ export async function upsertWorkoutEventsBulk(
   }
 
   const data = (await res.json().catch(() => null)) as
-    | Array<{ id?: number; uid?: string }>
+    | Array<{
+        id?: number;
+        uid?: string;
+        external_id?: string;
+        start_date_local?: string;
+      }>
     | null;
   if (!Array.isArray(data)) {
     throw new IcuApiError("intervals.icu bulk upsert returned no events", 502);
   }
 
-  // Map returned event ids back to their date via the deterministic uid.
-  const idByUid = new Map<string, number>();
+  console.log(
+    `[icu-http] bulk response: ${data.length} event(s); sample=${JSON.stringify(
+      data[0] ?? {},
+    ).slice(0, 300)}`,
+  );
+
+  // Match returned events back to our workouts. intervals.icu's response shape
+  // can vary, so try several keys: our deterministic uid/external_id, then the
+  // event date, then finally positional order (response mirrors the request).
+  const idByKey = new Map<string, number>();
+  const idByDate = new Map<string, number>();
   for (const ev of data) {
-    if (ev && typeof ev.id === "number" && typeof ev.uid === "string") {
-      idByUid.set(ev.uid, ev.id);
+    if (!ev || typeof ev.id !== "number") continue;
+    if (typeof ev.uid === "string") idByKey.set(ev.uid, ev.id);
+    if (typeof ev.external_id === "string") idByKey.set(ev.external_id, ev.id);
+    if (typeof ev.start_date_local === "string") {
+      idByDate.set(ev.start_date_local.slice(0, 10), ev.id);
     }
   }
-  for (const input of inputs) {
-    const id = idByUid.get(workoutUid(athleteId, input.dateYmd));
+
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    let id =
+      idByKey.get(workoutUid(athleteId, input.dateYmd)) ??
+      idByDate.get(input.dateYmd);
+    if (
+      id === undefined &&
+      data.length === inputs.length &&
+      typeof data[i]?.id === "number"
+    ) {
+      id = data[i]!.id;
+    }
     if (id !== undefined) result.set(input.dateYmd, id);
   }
   return result;

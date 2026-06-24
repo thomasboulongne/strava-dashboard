@@ -51,6 +51,29 @@ export default async function handler(request: Request, _context: Context) {
     });
   }
 
+  // This is a stateless Streamable HTTP server (JSON responses, no session),
+  // so there is no server->client SSE channel. Reject the GET/DELETE that
+  // clients use to open/close that stream; otherwise the transport leaves the
+  // GET open and the function hangs until it times out. Clients fall back to
+  // plain POST + JSON, which is all we use.
+  if (request.method === "GET" || request.method === "DELETE") {
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Method not allowed (use POST)" },
+        id: null,
+      }),
+      {
+        status: 405,
+        headers: {
+          "Content-Type": "application/json",
+          Allow: "POST, OPTIONS",
+          "Access-Control-Allow-Origin": "*",
+        },
+      },
+    );
+  }
+
   // Short correlation id so we can follow a single request through the logs.
   const reqId = Math.random().toString(36).slice(2, 8);
   const t0 = Date.now();
