@@ -40,14 +40,30 @@ export async function withTimeBudget(
   ms: number,
   task: Promise<void>,
 ): Promise<void> {
+  const start = Date.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = true;
   const budget = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, ms);
   });
+  const wrapped = task
+    .catch((err) => {
+      console.error("[icu-sync] task error:", err);
+    })
+    .then(() => {
+      timedOut = false;
+    });
   try {
-    await Promise.race([task.catch(() => undefined), budget]);
+    await Promise.race([wrapped, budget]);
   } finally {
     if (timer) clearTimeout(timer);
+    if (timedOut) {
+      console.warn(
+        `[icu-sync] sync exceeded ${ms}ms budget — returning; sync continues best-effort`,
+      );
+    } else {
+      console.log(`[icu-sync] sync finished in ${Date.now() - start}ms`);
+    }
   }
 }
 
@@ -56,13 +72,20 @@ export async function withTimeBudget(
 async function loadContext(
   athleteId: number,
 ): Promise<{ creds: IcuCredentials; opts: SerializeOptions } | null> {
+  const start = Date.now();
   const credsRow = await getIcuCredentials(athleteId);
-  if (!credsRow) return null;
+  if (!credsRow) {
+    console.log(`[icu-sync] athlete ${athleteId} not connected — skipping sync`);
+    return null;
+  }
 
   const [zones, user] = await Promise.all([
     getAthleteZones(athleteId).catch(() => null),
     getUserById(athleteId).catch(() => null),
   ]);
+  console.log(
+    `[icu-sync] loaded context for athlete ${athleteId} (icuId=${credsRow.icu_athlete_id}, ${Date.now() - start}ms)`,
+  );
 
   return {
     creds: { icuAthleteId: credsRow.icu_athlete_id, apiKey: credsRow.api_key },
@@ -115,7 +138,10 @@ export async function syncWeekToIcu(
   const ctx = await loadContext(athleteId);
   if (!ctx) return;
   const workouts = await getTrainingWorkoutsForWeek(athleteId, weekStart);
-  if (workouts.length === 0) return;
+  if (workouts.length === 0) {
+    console.log(`[icu-sync] week ${weekStart}: no workouts to sync`);
+    return;
+  }
 
   const inputs = workouts.map((w) => ({
     dateYmd: toYmd(w.workout_date),
@@ -123,8 +149,14 @@ export async function syncWeekToIcu(
     description: workoutToIcuDescription(w, ctx.opts),
   }));
 
+  console.log(
+    `[icu-sync] week ${weekStart}: bulk upserting ${inputs.length} workout(s)`,
+  );
   try {
     const idByDate = await upsertWorkoutEventsBulk(ctx.creds, athleteId, inputs);
+    console.log(
+      `[icu-sync] week ${weekStart}: bulk upsert ok, ${idByDate.size} event id(s) returned`,
+    );
     await Promise.all(
       workouts.map((w) =>
         updateWorkoutIcuState(w.id, {
@@ -159,6 +191,7 @@ export async function deleteWorkoutsFromIcu(
 
   const credsRow = await getIcuCredentials(athleteId);
   if (!credsRow) return;
+  console.log(`[icu-sync] deleting ${eventIds.length} event(s) from intervals.icu`);
   const creds: IcuCredentials = {
     icuAthleteId: credsRow.icu_athlete_id,
     apiKey: credsRow.api_key,

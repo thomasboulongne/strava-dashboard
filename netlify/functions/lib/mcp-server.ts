@@ -936,6 +936,9 @@ export function buildServer(athleteId: number): McpServer {
     },
     async ({ week_start, workouts, mode }) => {
       try {
+        console.log(
+          `[tool upsert_training_plan] athlete=${athleteId} week=${week_start} mode=${mode ?? "replace"} count=${workouts.length}`,
+        );
         if (!DATE_RE.test(week_start)) {
           return errorResult("week_start must be YYYY-MM-DD");
         }
@@ -982,9 +985,13 @@ export function buildServer(athleteId: number): McpServer {
           })),
         );
 
+        console.log(
+          `[tool upsert_training_plan] imported ${imported} row(s); starting intervals.icu sync`,
+        );
         // Mirror the week to intervals.icu in one bulk call (best-effort,
         // no-op if not connected), bounded so it never blocks the response.
         await withTimeBudget(SYNC_BUDGET_MS, syncWeekToIcu(athleteId, week_start));
+        console.log(`[tool upsert_training_plan] done`);
 
         const saved = await getTrainingWorkoutsForWeek(athleteId, week_start);
         return textResult({
@@ -1023,6 +1030,7 @@ export function buildServer(athleteId: number): McpServer {
     },
     async ({ workout_id, session_name, duration_target_minutes, intensity_target, notes, workout_text }) => {
       try {
+        console.log(`[tool update_workout] athlete=${athleteId} workout=${workout_id}`);
         const existing = await getTrainingWorkoutById(workout_id);
         if (!existing || Number(existing.athlete_id) !== athleteId) {
           return errorResult(`Workout ${workout_id} not found`);
@@ -1067,6 +1075,7 @@ export function buildServer(athleteId: number): McpServer {
     },
     async ({ week_start }) => {
       try {
+        console.log(`[tool delete_training_plan] athlete=${athleteId} week=${week_start}`);
         if (!DATE_RE.test(week_start)) {
           return errorResult("week_start must be YYYY-MM-DD");
         }

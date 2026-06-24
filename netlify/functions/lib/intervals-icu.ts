@@ -32,8 +32,36 @@ function authHeader(apiKey: string): string {
 }
 
 // fetch with an abort timeout (Node 18+ provides AbortSignal.timeout).
-function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(ICU_TIMEOUT_MS) });
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const method = init.method ?? "GET";
+  // Strip the host so logs show just the path (no secrets are in the URL).
+  const path = url.replace(ICU_BASE_URL, "");
+  const start = Date.now();
+  console.log(`[icu-http] ${method} ${path} ...`);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(ICU_TIMEOUT_MS),
+    });
+    console.log(
+      `[icu-http] ${method} ${path} -> ${res.status} (${Date.now() - start}ms)`,
+    );
+    return res;
+  } catch (err) {
+    const reason =
+      err instanceof Error && err.name === "TimeoutError"
+        ? `timeout after ${ICU_TIMEOUT_MS}ms`
+        : err instanceof Error
+          ? err.message
+          : "unknown error";
+    console.error(
+      `[icu-http] ${method} ${path} -> FAILED ${reason} (${Date.now() - start}ms)`,
+    );
+    throw err;
+  }
 }
 
 // --- Workout text (DSL) serialization ---------------------------------------

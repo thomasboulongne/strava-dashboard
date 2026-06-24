@@ -51,8 +51,31 @@ export default async function handler(request: Request, _context: Context) {
     });
   }
 
+  // Short correlation id so we can follow a single request through the logs.
+  const reqId = Math.random().toString(36).slice(2, 8);
+  const t0 = Date.now();
+
+  // Peek the JSON-RPC method / tool name for debugging (clone so the original
+  // request body stays intact for the transport).
+  let rpcInfo = "";
+  if (request.method === "POST") {
+    try {
+      const peeked = (await request.clone().json()) as {
+        method?: string;
+        params?: { name?: string };
+      };
+      rpcInfo = peeked?.params?.name
+        ? `${peeked.method}:${peeked.params.name}`
+        : String(peeked?.method ?? "");
+    } catch {
+      rpcInfo = "(unparsable body)";
+    }
+  }
+  console.log(`[mcp ${reqId}] ${request.method} rpc=${rpcInfo || "-"}`);
+
   const athleteId = await resolveRequestAthlete(request);
   if (athleteId === null || Number.isNaN(athleteId)) {
+    console.log(`[mcp ${reqId}] unauthorized (${Date.now() - t0}ms)`);
     return new Response(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -62,6 +85,7 @@ export default async function handler(request: Request, _context: Context) {
       { status: 401, headers: { "Content-Type": "application/json" } }
     );
   }
+  console.log(`[mcp ${reqId}] athlete=${athleteId} (${Date.now() - t0}ms)`);
 
   const server = buildServer(athleteId);
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -71,10 +95,14 @@ export default async function handler(request: Request, _context: Context) {
 
   try {
     await server.connect(transport);
+    console.log(`[mcp ${reqId}] handleRequest start (${Date.now() - t0}ms)`);
     const response = await transport.handleRequest(request);
     // Buffer the (JSON) body before tearing down the transport so the response
     // is fully materialized for the stateless, single-shot request.
     const body = await response.arrayBuffer();
+    console.log(
+      `[mcp ${reqId}] handleRequest done status=${response.status} bytes=${body.byteLength} (${Date.now() - t0}ms)`,
+    );
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", "*");
     return new Response(body, {
@@ -83,7 +111,7 @@ export default async function handler(request: Request, _context: Context) {
       headers,
     });
   } catch (error) {
-    console.error("MCP request error:", error);
+    console.error(`[mcp ${reqId}] request error (${Date.now() - t0}ms):`, error);
     return new Response(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -95,6 +123,7 @@ export default async function handler(request: Request, _context: Context) {
   } finally {
     await transport.close();
     await server.close();
+    console.log(`[mcp ${reqId}] closed (${Date.now() - t0}ms)`);
   }
 }
 
