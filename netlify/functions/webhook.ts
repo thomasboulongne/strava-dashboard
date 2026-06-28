@@ -2,22 +2,13 @@
 // Handles both subscription validation (GET) and event notifications (POST)
 import type { Context } from "@netlify/functions";
 import {
-  upsertActivity,
   deleteActivity,
-  upsertActivityStreams,
   deleteActivityStreams,
-  upsertActivityLapsBatch,
-  deleteActivityLaps,
-  markActivityLapsSynced,
+  deleteActivityZones,
 } from "./lib/db.js";
 import { jsonResponse, getCorsHeaders } from "./lib/strava.js";
-import {
-  getValidAccessToken,
-  fetchActivity,
-  fetchActivityStreams,
-  activityMightHaveStreams,
-  extractLaps,
-} from "./lib/strava-api.js";
+import { getValidAccessToken } from "./lib/strava-api.js";
+import { enrichActivity } from "./lib/enrich.js";
 
 // Webhook event types from Strava
 interface StravaWebhookEvent {
@@ -35,14 +26,16 @@ async function handleActivityEvent(event: StravaWebhookEvent): Promise<void> {
   const { object_id: activityId, aspect_type, owner_id: athleteId } = event;
 
   if (aspect_type === "delete") {
-    // Delete the activity and its streams from our database
+    // Delete the activity and its streams/zones from our database
     await deleteActivity(activityId);
     await deleteActivityStreams(activityId);
+    await deleteActivityZones(activityId);
     console.log(`Webhook: Deleted activity ${activityId}`);
     return;
   }
 
-  // For create and update, we need to fetch the full activity
+  // For create and update, fully enrich the activity (detailed JSON + laps +
+  // all streams + Strava zones) via the shared helper.
   const accessToken = await getValidAccessToken(athleteId);
   if (!accessToken) {
     console.error(
@@ -51,59 +44,22 @@ async function handleActivityEvent(event: StravaWebhookEvent): Promise<void> {
     return;
   }
 
-  const activityResult = await fetchActivity(activityId, accessToken);
-  if (!activityResult) {
-    console.error(`Webhook: Could not fetch activity ${activityId}`);
+  const result = await enrichActivity(activityId, athleteId, accessToken, {
+    isUpdate: aspect_type === "update",
+  });
+
+  if (!result.ok) {
+    console.error(`Webhook: Could not enrich activity ${activityId}`);
     return;
   }
-
-  const { data: activity } = activityResult;
-
-  // Upsert the activity
-  await upsertActivity(
-    activityId,
-    athleteId,
-    activity,
-    activity.start_date as string
-  );
 
   console.log(
     `Webhook: ${
       aspect_type === "create" ? "Created" : "Updated"
-    } activity ${activityId}`
+    } activity ${activityId} (laps=${result.laps}, streams=[${result.streamTypes.join(
+      ", "
+    )}], zones=${result.zones})`
   );
-
-  // Extract and store laps from the activity data
-  const laps = extractLaps(activity, athleteId);
-  if (laps && laps.length > 0) {
-    if (aspect_type === "update") {
-      await deleteActivityLaps(activityId);
-    }
-    const lapCount = await upsertActivityLapsBatch(laps);
-    console.log(`Webhook: Stored ${lapCount} laps for activity ${activityId}`);
-  }
-  await markActivityLapsSynced(activityId);
-
-  // Also fetch and store streams if the activity might have HR/power data
-  if (activityMightHaveStreams(activity)) {
-    const streamsResult = await fetchActivityStreams(activityId, accessToken);
-    if (streamsResult) {
-      await upsertActivityStreams(
-        activityId,
-        athleteId,
-        streamsResult.streams,
-        streamsResult.streamTypes
-      );
-      console.log(
-        `Webhook: Stored streams for activity ${activityId}: ${streamsResult.streamTypes.join(
-          ", "
-        )}`
-      );
-    }
-  } else {
-    // Mark as having no streams to avoid re-checking
-    await upsertActivityStreams(activityId, athleteId, {}, []);
-  }
 }
 
 // Handle athlete events (deauthorization, etc.)

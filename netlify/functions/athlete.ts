@@ -5,20 +5,32 @@ import {
   jsonResponseWithCookies,
   jsonResponse,
 } from "./lib/strava.js";
-import { updateUserFtp } from "./lib/db.js";
+import { cacheAthleteDetails } from "./lib/db.js";
 
 export default async function handler(request: Request, _context: Context) {
   return withAuth(request, async (_req, accessToken, newCookies) => {
     try {
       const athlete = await fetchFromStrava("/athlete", accessToken);
 
-      // Cache FTP for the MCP server (best-effort, non-blocking on failure).
-      const ftp = (athlete as { id?: number; ftp?: number }).ftp;
-      const athleteId = (athlete as { id?: number }).id;
-      if (typeof ftp === "number" && ftp > 0 && typeof athleteId === "number") {
-        updateUserFtp(athleteId, ftp).catch((e) =>
-          console.error("Failed to cache FTP:", e),
-        );
+      // Cache FTP, body weight, and gear (bikes/shoes) for the MCP server
+      // (best-effort, non-blocking on failure).
+      const a = athlete as {
+        id?: number;
+        ftp?: number;
+        weight?: number;
+        bikes?: unknown[];
+        shoes?: unknown[];
+      };
+      const athleteId = a.id;
+      if (typeof athleteId === "number") {
+        cacheAthleteDetails(athleteId, {
+          ftp: typeof a.ftp === "number" && a.ftp > 0 ? a.ftp : undefined,
+          weight: typeof a.weight === "number" ? a.weight : undefined,
+          gear:
+            a.bikes || a.shoes
+              ? { bikes: a.bikes ?? [], shoes: a.shoes ?? [] }
+              : undefined,
+        }).catch((e) => console.error("Failed to cache athlete details:", e));
       }
 
       return jsonResponseWithCookies(athlete, newCookies);

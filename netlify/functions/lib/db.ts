@@ -22,6 +22,8 @@ export interface DbUser {
   refresh_token: string;
   token_expires_at: number;
   ftp: number | null;
+  weight: number | null;
+  gear: Record<string, unknown> | null; // { bikes: [...], shoes: [...] }
   created_at: Date;
   updated_at: Date;
 }
@@ -31,28 +33,45 @@ export interface DbActivity {
   athlete_id: number;
   data: Record<string, unknown>; // Full Strava activity JSON
   start_date: Date;
+  laps_synced?: boolean;
+  detail_synced?: boolean; // Whether full DetailedActivity+streams+zones stored
   created_at: Date;
   updated_at: Date;
 }
 
-// Stream types we want to store - easily extensible
-export const STREAM_TYPES_TO_FETCH = ["heartrate", "watts"] as const;
-export type StreamType =
-  | (typeof STREAM_TYPES_TO_FETCH)[number]
-  | "time"
-  | "distance"
-  | "altitude"
-  | "velocity_smooth"
-  | "cadence"
-  | "latlng"
-  | "grade_smooth"
-  | "temp";
+// Stream types we want to store - easily extensible.
+// We pull every stream Strava exposes so agents can analyze pace, elevation,
+// cadence, GPS, etc. (not just HR/power). "time" is always added implicitly.
+export const STREAM_TYPES_TO_FETCH = [
+  "heartrate",
+  "watts",
+  "cadence",
+  "velocity_smooth",
+  "altitude",
+  "distance",
+  "grade_smooth",
+  "temp",
+  "latlng",
+  "moving",
+] as const;
+export type StreamType = (typeof STREAM_TYPES_TO_FETCH)[number] | "time";
 
 export interface DbActivityStreams {
   activity_id: number;
   athlete_id: number;
   streams: Record<string, unknown>; // JSONB with stream data keyed by type
   stream_types: string[]; // Array of stream types stored
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Strava-computed per-activity zone distribution (/activities/{id}/zones).
+// Each entry has a type (heartrate/power), optional score, and
+// distribution_buckets describing time spent in each bucket.
+export interface DbActivityZones {
+  activity_id: number;
+  athlete_id: number;
+  zones: unknown[]; // Raw Strava zones array
   created_at: Date;
   updated_at: Date;
 }
@@ -196,6 +215,15 @@ export async function initializeSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS ftp INTEGER
   `;
 
+  // Migration: cache athlete body weight (kg) and gear (bikes/shoes) from the
+  // Strava DetailedAthlete so the MCP server can expose them without a live call.
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS weight REAL
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS gear JSONB
+  `;
+
   await sql`
     CREATE TABLE IF NOT EXISTS activities (
       id BIGINT PRIMARY KEY,
@@ -211,6 +239,14 @@ export async function initializeSchema() {
   // Migration: add laps_synced column for existing databases
   await sql`
     ALTER TABLE activities ADD COLUMN IF NOT EXISTS laps_synced BOOLEAN NOT NULL DEFAULT FALSE
+  `;
+
+  // Migration: track whether we've fetched the full DetailedActivity (with
+  // description, splits, segment efforts, best efforts, gear, etc.) plus
+  // streams and zones. Bulk sync only stores the summary, so this stays FALSE
+  // until enrichActivity() runs (recent backfill or on-demand from MCP).
+  await sql`
+    ALTER TABLE activities ADD COLUMN IF NOT EXISTS detail_synced BOOLEAN NOT NULL DEFAULT FALSE
   `;
 
   await sql`
@@ -262,6 +298,22 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_activity_streams_athlete_id ON activity_streams(athlete_id)
+  `;
+
+  // Activity zones table - stores Strava's per-activity time-in-zone
+  // distribution (heart rate and/or power) from /activities/{id}/zones.
+  await sql`
+    CREATE TABLE IF NOT EXISTS activity_zones (
+      activity_id BIGINT PRIMARY KEY REFERENCES activities(id) ON DELETE CASCADE,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      zones JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_activity_zones_athlete_id ON activity_zones(athlete_id)
   `;
 
   // Athlete zones table - stores HR and power zone definitions from Strava
@@ -455,6 +507,33 @@ export async function updateUserTokens(
 export async function updateUserFtp(id: number, ftp: number): Promise<void> {
   const sql = getDb();
   await sql`UPDATE users SET ftp = ${ftp}, updated_at = NOW() WHERE id = ${id}`;
+}
+
+// Cache body metrics and gear (bikes/shoes) from the Strava DetailedAthlete so
+// the MCP server can expose them without a live Strava call. Only overwrites
+// fields that are provided (so a partial update never clobbers cached data).
+export async function cacheAthleteDetails(
+  id: number,
+  details: {
+    ftp?: number | null;
+    weight?: number | null;
+    gear?: Record<string, unknown> | null;
+  },
+): Promise<void> {
+  const sql = getDb();
+  const setFtp = details.ftp !== undefined;
+  const setWeight = details.weight !== undefined;
+  const setGear = details.gear !== undefined;
+  await sql`
+    UPDATE users
+    SET ftp = CASE WHEN ${setFtp} THEN ${details.ftp ?? null} ELSE ftp END,
+        weight = CASE WHEN ${setWeight} THEN ${details.weight ?? null} ELSE weight END,
+        gear = CASE WHEN ${setGear} THEN ${
+          details.gear ? JSON.stringify(details.gear) : null
+        } ELSE gear END,
+        updated_at = NOW()
+    WHERE id = ${id}
+  `;
 }
 
 // Activity operations
@@ -910,6 +989,36 @@ export async function getAllActivityStreamsForAthlete(
     ORDER BY a.start_date DESC
   `;
   return result as DbActivityStreams[];
+}
+
+// Activity zones operations (Strava's per-activity time-in-zone distribution)
+export async function upsertActivityZones(
+  activityId: number,
+  athleteId: number,
+  zones: unknown[],
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    INSERT INTO activity_zones (activity_id, athlete_id, zones, updated_at)
+    VALUES (${activityId}, ${athleteId}, ${JSON.stringify(zones)}, NOW())
+    ON CONFLICT (activity_id) DO UPDATE SET
+      zones = EXCLUDED.zones,
+      updated_at = NOW()
+  `;
+}
+
+export async function getActivityZones(
+  activityId: number,
+): Promise<DbActivityZones | null> {
+  const sql = getDb();
+  const result =
+    await sql`SELECT * FROM activity_zones WHERE activity_id = ${activityId}`;
+  return (result[0] as DbActivityZones) || null;
+}
+
+export async function deleteActivityZones(activityId: number): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM activity_zones WHERE activity_id = ${activityId}`;
 }
 
 // Athlete zones operations
@@ -1392,6 +1501,55 @@ export async function markActivitiesLapsSynced(
     UPDATE activities SET laps_synced = TRUE, updated_at = NOW()
     WHERE id = ANY(${activityIds})
   `;
+}
+
+// Mark an activity as fully enriched (DetailedActivity + streams + zones stored).
+export async function markActivityDetailSynced(
+  activityId: number,
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE activities SET detail_synced = TRUE, updated_at = NOW()
+    WHERE id = ${activityId}
+  `;
+}
+
+// Activities (most recent first) within a window that still need enrichment.
+// Used by the recent-window backfill job. `after` is an ISO date string.
+export async function getActivitiesNeedingDetail(
+  athleteId: number,
+  after: string,
+  limit: number = 10,
+): Promise<number[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT id FROM activities
+    WHERE athlete_id = ${athleteId}
+      AND detail_synced = FALSE
+      AND start_date >= ${after}
+    ORDER BY start_date DESC
+    LIMIT ${limit}
+  `;
+  return result.map((r) => r.id as number);
+}
+
+// Enrichment progress for the recent window (for status reporting).
+export async function getDetailSyncProgress(
+  athleteId: number,
+  after: string,
+): Promise<{ total: number; synced: number; pending: number }> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT
+      COUNT(*) as total,
+      COUNT(*) FILTER (WHERE detail_synced = TRUE) as synced
+    FROM activities
+    WHERE athlete_id = ${athleteId}
+      AND start_date >= ${after}
+  `;
+  const total = parseInt(result[0].total as string, 10);
+  const synced = parseInt(result[0].synced as string, 10);
+  return { total, synced, pending: total - synced };
 }
 
 // Weekly report operations

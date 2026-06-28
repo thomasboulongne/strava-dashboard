@@ -14,7 +14,7 @@ import {
   hasActivity,
   upsertActivity,
   getStreamsSyncProgress,
-  getLapsSyncProgress,
+  getDetailSyncProgress,
 } from "./lib/db.js";
 import {
   getValidAccessToken,
@@ -22,6 +22,7 @@ import {
   shouldPauseForRateLimit,
   type RateLimitInfo,
 } from "./lib/strava-api.js";
+import { enrichWindowAfter } from "./lib/enrich.js";
 
 // How many activities to fetch per page (max 200)
 const ACTIVITIES_PER_PAGE = 200;
@@ -41,13 +42,23 @@ export default async function handler(request: Request, _context: Context) {
     const activityCount = await getActivityCount(athleteId);
     const latestActivityDate = await getLatestActivityDate(athleteId);
     const streamsProgress = await getStreamsSyncProgress(athleteId);
-    const lapsProgress = await getLapsSyncProgress(athleteId);
+    // "laps" now reflects full enrichment progress over the recent window
+    // (detailed activity + laps + streams + zones), so the dashboard's
+    // continuation loop settles once recent history is enriched.
+    const detailProgress = await getDetailSyncProgress(
+      athleteId,
+      enrichWindowAfter(),
+    );
 
     return jsonResponse({
       activityCount,
       latestActivityDate,
       streams: streamsProgress,
-      laps: lapsProgress,
+      laps: {
+        total: detailProgress.total,
+        withLaps: detailProgress.synced,
+        pending: detailProgress.pending,
+      },
       // No more sync jobs - sync is now stateless and on-demand
       syncJob: null,
     }, 200);

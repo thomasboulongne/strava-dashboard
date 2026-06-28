@@ -7,6 +7,7 @@ import {
   getActivitiesForAthlete,
   getActivityById,
   getActivityStreams,
+  getActivityZones,
   getLapsForActivity,
   getAthleteZones,
   getUserById,
@@ -24,6 +25,8 @@ import {
   type DbAthleteZones,
   type DbTrainingWorkout,
 } from "./db.js";
+import { getValidAccessToken } from "./strava-api.js";
+import { enrichActivity } from "./enrich.js";
 import {
   isIndoorRide,
   effectiveSportType,
@@ -67,23 +70,34 @@ async function resolveFtp(
 // Pull a compact, plan-relevant subset out of the full Strava activity JSON.
 function summarizeActivity(activity: Record<string, unknown>) {
   const pick = <T>(key: string): T | undefined => activity[key] as T | undefined;
+  const countOf = (key: string): number | undefined => {
+    const v = activity[key];
+    return Array.isArray(v) ? v.length : undefined;
+  };
   return {
     id: pick<number>("id"),
     name: pick<string>("name"),
     type: pick<string>("type"),
     sport_type: pick<string>("sport_type"),
+    workout_type: pick<number>("workout_type"),
     start_date_local: pick<string>("start_date_local"),
+    timezone: pick<string>("timezone"),
     distance_m: pick<number>("distance"),
     moving_time_s: pick<number>("moving_time"),
     elapsed_time_s: pick<number>("elapsed_time"),
     total_elevation_gain_m: pick<number>("total_elevation_gain"),
+    elev_high_m: pick<number>("elev_high"),
+    elev_low_m: pick<number>("elev_low"),
     average_speed_mps: pick<number>("average_speed"),
     max_speed_mps: pick<number>("max_speed"),
     average_heartrate: pick<number>("average_heartrate"),
     max_heartrate: pick<number>("max_heartrate"),
     average_watts: pick<number>("average_watts"),
     weighted_average_watts: pick<number>("weighted_average_watts"),
+    max_watts: pick<number>("max_watts"),
+    device_watts: pick<boolean>("device_watts"),
     average_cadence: pick<number>("average_cadence"),
+    average_temp_c: pick<number>("average_temp"),
     kilojoules: pick<number>("kilojoules"),
     calories: pick<number>("calories"),
     suffer_score: pick<number>("suffer_score"),
@@ -91,6 +105,16 @@ function summarizeActivity(activity: Record<string, unknown>) {
     has_heartrate: pick<boolean>("has_heartrate"),
     trainer: pick<boolean>("trainer"),
     commute: pick<boolean>("commute"),
+    gear_id: pick<string>("gear_id"),
+    device_name: pick<string>("device_name"),
+    description: pick<string>("description"),
+    private_note: pick<string>("private_note"),
+    pr_count: pick<number>("pr_count"),
+    achievement_count: pick<number>("achievement_count"),
+    // Counts hint at richer detail available via the dedicated tools.
+    segment_efforts_count: countOf("segment_efforts"),
+    splits_metric_count: countOf("splits_metric"),
+    best_efforts_count: countOf("best_efforts"),
   };
 }
 
@@ -188,16 +212,107 @@ async function buildStreamSummary(activityId: number, zones: DbAthleteZones | nu
   const hr = streams.heartrate?.data;
   const watts = streams.watts?.data;
   const time = streams.time?.data;
+  const cadence = streams.cadence?.data;
+  const velocity = streams.velocity_smooth?.data;
+  const altitude = streams.altitude?.data;
+  const temp = streams.temp?.data;
+  const grade = streams.grade_smooth?.data;
 
-  if (!hr && !watts) return null;
+  const available = row.stream_types ?? [];
+  if (available.length === 0) return null;
 
   return {
-    available_types: row.stream_types,
+    available_types: available,
     heartrate: streamStats(hr),
     watts: streamStats(watts),
+    cadence: streamStats(cadence),
+    velocity_smooth_mps: streamStats(velocity),
+    altitude_m: streamStats(altitude),
+    temp_c: streamStats(temp),
+    grade_smooth_pct: streamStats(grade),
     hr_time_in_zones: timeInZones(hr, time, zones?.heart_rate_zones),
     power_time_in_zones: timeInZones(watts, time, zones?.power_zones),
   };
+}
+
+// Project a Strava split (splits_metric / splits_standard) row.
+function summarizeSplit(split: Record<string, unknown>) {
+  const pick = <T>(key: string): T | undefined => split[key] as T | undefined;
+  return {
+    split: pick<number>("split"),
+    distance_m: pick<number>("distance"),
+    elapsed_time_s: pick<number>("elapsed_time"),
+    moving_time_s: pick<number>("moving_time"),
+    elevation_difference_m: pick<number>("elevation_difference"),
+    average_speed_mps: pick<number>("average_speed"),
+    average_heartrate: pick<number>("average_heartrate"),
+    average_grade_adjusted_speed_mps: pick<number>(
+      "average_grade_adjusted_speed",
+    ),
+    pace_zone: pick<number>("pace_zone"),
+  };
+}
+
+// Project a segment effort row from a DetailedActivity.
+function summarizeSegmentEffort(effort: Record<string, unknown>) {
+  const pick = <T>(key: string): T | undefined => effort[key] as T | undefined;
+  const seg = (effort.segment as Record<string, unknown>) ?? {};
+  const segPick = <T>(key: string): T | undefined => seg[key] as T | undefined;
+  return {
+    id: pick<number>("id"),
+    name: pick<string>("name"),
+    elapsed_time_s: pick<number>("elapsed_time"),
+    moving_time_s: pick<number>("moving_time"),
+    distance_m: pick<number>("distance"),
+    start_date_local: pick<string>("start_date_local"),
+    average_watts: pick<number>("average_watts"),
+    average_heartrate: pick<number>("average_heartrate"),
+    max_heartrate: pick<number>("max_heartrate"),
+    average_cadence: pick<number>("average_cadence"),
+    pr_rank: pick<number>("pr_rank"),
+    kom_rank: pick<number>("kom_rank"),
+    segment: {
+      id: segPick<number>("id"),
+      name: segPick<string>("name"),
+      distance_m: segPick<number>("distance"),
+      average_grade_pct: segPick<number>("average_grade"),
+      maximum_grade_pct: segPick<number>("maximum_grade"),
+      climb_category: segPick<number>("climb_category"),
+      city: segPick<string>("city"),
+      state: segPick<string>("state"),
+    },
+  };
+}
+
+// Project a running best-effort row from a DetailedActivity.
+function summarizeBestEffort(effort: Record<string, unknown>) {
+  const pick = <T>(key: string): T | undefined => effort[key] as T | undefined;
+  return {
+    name: pick<string>("name"),
+    distance_m: pick<number>("distance"),
+    elapsed_time_s: pick<number>("elapsed_time"),
+    moving_time_s: pick<number>("moving_time"),
+    start_date_local: pick<string>("start_date_local"),
+    pr_rank: pick<number>("pr_rank"),
+  };
+}
+
+// Ensure an activity is fully enriched (DetailedActivity + laps + streams +
+// zones). Activities outside the eager-backfill window may only have the
+// summary stored; this enriches them live so analysis tools have full data.
+// Best-effort: if enrichment can't run (e.g. no token) the row is returned
+// unchanged.
+async function ensureEnriched(
+  athleteId: number,
+  row: DbActivity,
+): Promise<DbActivity> {
+  if (row.detail_synced) return row;
+  const token = await getValidAccessToken(athleteId);
+  if (!token) return row;
+  const result = await enrichActivity(Number(row.id), athleteId, token);
+  if (!result.ok) return row;
+  const refreshed = await getActivityById(Number(row.id));
+  return refreshed ?? row;
 }
 
 // --- Aggregation -------------------------------------------------------------
@@ -380,6 +495,14 @@ export function buildServer(athleteId: number): McpServer {
     version: "1.0.0",
   });
 
+  // Load an activity owned by this athlete, enriching it on-demand so detail/
+  // streams/zones are present. Returns null if missing or not owned.
+  const getOwnedEnriched = async (id: number): Promise<DbActivity | null> => {
+    const row = await getActivityById(id);
+    if (!row || Number(row.athlete_id) !== athleteId) return null;
+    return ensureEnriched(athleteId, row);
+  };
+
   server.registerTool(
     "list_activities",
     {
@@ -448,6 +571,7 @@ export function buildServer(athleteId: number): McpServer {
       title: "Get activity detail",
       outputSchema: {
         activity: z.unknown(),
+        detail_synced: z.boolean().optional(),
         laps: z.array(z.unknown()).optional(),
         streams_summary: z.unknown().optional(),
       },
@@ -468,14 +592,18 @@ export function buildServer(athleteId: number): McpServer {
     },
     async ({ id, include_laps, include_streams_summary }) => {
       try {
-        const activity = await getActivityById(id);
+        let activity = await getActivityById(id);
         // Neon returns BIGINT columns as strings, so coerce before comparing.
         if (!activity || Number(activity.athlete_id) !== athleteId) {
           return errorResult(`Activity ${id} not found`);
         }
 
+        // Enrich on-demand so older activities expose full detail/streams/zones.
+        activity = await ensureEnriched(athleteId, activity);
+
         const payload: Record<string, unknown> = {
           activity: activity.data,
+          detail_synced: activity.detail_synced === true,
         };
 
         if (include_laps !== false) {
@@ -493,6 +621,310 @@ export function buildServer(athleteId: number): McpServer {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
       }
     }
+  );
+
+  server.registerTool(
+    "get_activity_streams",
+    {
+      title: "Get raw activity streams",
+      outputSchema: {
+        activity_id: z.number(),
+        available_types: z.array(z.string()),
+        returned_types: z.array(z.string()),
+        original_size: z.number().nullable(),
+        returned_size: z.number(),
+        every_n: z.number(),
+        start_index: z.number(),
+        end_index: z.number().nullable(),
+        streams: z.unknown(),
+      },
+      description:
+        "Get the full raw time-series streams for an activity (heartrate, watts, cadence, velocity_smooth, altitude, distance, grade_smooth, temp, latlng, moving, time). Returns every data point by default for precise analysis. For very long activities, narrow the payload with `types`, an index window (`start_index`/`end_index`), and/or `every_n` to downsample to every Nth sample.",
+      inputSchema: {
+        id: z.number().int().describe("Strava activity ID"),
+        types: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Only return these stream types (default: all available). E.g. ['heartrate','watts','altitude'].",
+          ),
+        start_index: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Start sample index (inclusive, default 0)"),
+        end_index: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("End sample index (exclusive, default = full length)"),
+        every_n: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Keep every Nth sample to downsample (default 1 = all)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id, types, start_index, end_index, every_n }) => {
+      try {
+        const owned = await getOwnedEnriched(id);
+        if (!owned) return errorResult(`Activity ${id} not found`);
+
+        const row = await getActivityStreams(id);
+        const step = every_n ?? 1;
+        const start = start_index ?? 0;
+
+        if (!row || !row.streams) {
+          return textResult({
+            activity_id: id,
+            available_types: [],
+            returned_types: [],
+            original_size: null,
+            returned_size: 0,
+            every_n: step,
+            start_index: start,
+            end_index: end_index ?? null,
+            streams: {},
+          });
+        }
+
+        const allStreams = row.streams as Record<
+          string,
+          { data?: unknown[]; original_size?: number }
+        >;
+        const available =
+          row.stream_types && row.stream_types.length > 0
+            ? row.stream_types
+            : Object.keys(allStreams);
+        const requested =
+          types && types.length > 0
+            ? types.filter((t) => available.includes(t))
+            : available;
+
+        const out: Record<string, unknown[]> = {};
+        let returnedSize = 0;
+        let originalSize: number | null = null;
+
+        for (const t of requested) {
+          const data = Array.isArray(allStreams[t]?.data)
+            ? (allStreams[t].data as unknown[])
+            : [];
+          if (originalSize === null) originalSize = data.length;
+          const end =
+            end_index !== undefined
+              ? Math.min(end_index, data.length)
+              : data.length;
+          const sliced: unknown[] = [];
+          for (let i = start; i < end; i += step) sliced.push(data[i]);
+          out[t] = sliced;
+          if (sliced.length > returnedSize) returnedSize = sliced.length;
+        }
+
+        return textResult({
+          activity_id: id,
+          available_types: available,
+          returned_types: requested,
+          original_size: originalSize,
+          returned_size: returnedSize,
+          every_n: step,
+          start_index: start,
+          end_index: end_index ?? null,
+          streams: out,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_activity_zones",
+    {
+      title: "Get activity time-in-zone",
+      outputSchema: {
+        activity_id: z.number(),
+        zones: z.array(z.unknown()),
+      },
+      description:
+        "Get Strava's own per-activity time-in-zone distribution (heart-rate and/or power) for an activity, including each zone's bucket time and, for HR, the relative-effort score. Complements get_athlete_zones (which defines the zone ranges).",
+      inputSchema: {
+        id: z.number().int().describe("Strava activity ID"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        const owned = await getOwnedEnriched(id);
+        if (!owned) return errorResult(`Activity ${id} not found`);
+        const zones = await getActivityZones(id);
+        return textResult({ activity_id: id, zones: zones?.zones ?? [] });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_activity_splits",
+    {
+      title: "Get activity splits",
+      outputSchema: {
+        activity_id: z.number(),
+        splits_metric: z.array(z.unknown()),
+        splits_standard: z.array(z.unknown()),
+      },
+      description:
+        "Get the per-kilometre (metric) and per-mile (standard) splits for an activity: distance, elapsed/moving time, elevation change, average speed/HR, grade-adjusted speed, and pace zone. Ideal for pacing analysis of runs and rides.",
+      inputSchema: {
+        id: z.number().int().describe("Strava activity ID"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        const owned = await getOwnedEnriched(id);
+        if (!owned) return errorResult(`Activity ${id} not found`);
+        const a = owned.data;
+        const metric = Array.isArray(a.splits_metric)
+          ? (a.splits_metric as Record<string, unknown>[])
+          : [];
+        const standard = Array.isArray(a.splits_standard)
+          ? (a.splits_standard as Record<string, unknown>[])
+          : [];
+        return textResult({
+          activity_id: id,
+          splits_metric: metric.map(summarizeSplit),
+          splits_standard: standard.map(summarizeSplit),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_segment_efforts",
+    {
+      title: "Get segment efforts",
+      outputSchema: {
+        activity_id: z.number(),
+        count: z.number(),
+        segment_efforts: z.array(z.unknown()),
+      },
+      description:
+        "Get the segment efforts recorded during an activity: each effort's time, distance, power/HR, PR/KOM rank, and the underlying segment (grade, climb category, location). Use to analyze climbs and segment performance.",
+      inputSchema: {
+        id: z.number().int().describe("Strava activity ID"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        const owned = await getOwnedEnriched(id);
+        if (!owned) return errorResult(`Activity ${id} not found`);
+        const efforts = Array.isArray(owned.data.segment_efforts)
+          ? (owned.data.segment_efforts as Record<string, unknown>[])
+          : [];
+        return textResult({
+          activity_id: id,
+          count: efforts.length,
+          segment_efforts: efforts.map(summarizeSegmentEffort),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_best_efforts",
+    {
+      title: "Get running best efforts",
+      outputSchema: {
+        activity_id: z.number(),
+        count: z.number(),
+        best_efforts: z.array(z.unknown()),
+      },
+      description:
+        "Get the standard-distance best efforts Strava computes for a run (e.g. 400m, 1k, 1 mile, 5k), with each effort's time and PR rank. Empty for activities without best efforts (e.g. rides).",
+      inputSchema: {
+        id: z.number().int().describe("Strava activity ID"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id }) => {
+      try {
+        const owned = await getOwnedEnriched(id);
+        if (!owned) return errorResult(`Activity ${id} not found`);
+        const efforts = Array.isArray(owned.data.best_efforts)
+          ? (owned.data.best_efforts as Record<string, unknown>[])
+          : [];
+        return textResult({
+          activity_id: id,
+          count: efforts.length,
+          best_efforts: efforts.map(summarizeBestEffort),
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_gear",
+    {
+      title: "Get gear",
+      outputSchema: {
+        bikes: z.array(z.unknown()),
+        shoes: z.array(z.unknown()),
+        activity_gear: z.unknown().nullable(),
+      },
+      description:
+        "Get the athlete's gear (bikes and shoes with name, brand/model, and total distance). Pass an `activity_id` to also resolve which gear was used for that activity. Useful for equipment usage and mileage tracking.",
+      inputSchema: {
+        activity_id: z
+          .number()
+          .int()
+          .optional()
+          .describe("Optional Strava activity ID to resolve its gear"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ activity_id }) => {
+      try {
+        const user = await getUserById(athleteId);
+        const gear = (user?.gear ?? null) as {
+          bikes?: Record<string, unknown>[];
+          shoes?: Record<string, unknown>[];
+        } | null;
+        const bikes = gear?.bikes ?? [];
+        const shoes = gear?.shoes ?? [];
+
+        let activityGear: Record<string, unknown> | null = null;
+        if (activity_id !== undefined) {
+          const owned = await getOwnedEnriched(activity_id);
+          if (owned) {
+            const gid = owned.data.gear_id as string | undefined;
+            if (gid) {
+              activityGear =
+                [...bikes, ...shoes].find((g) => g.id === gid) ?? { id: gid };
+            }
+          }
+        }
+
+        return textResult({
+          bikes,
+          shoes,
+          activity_gear: activityGear,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    },
   );
 
   server.registerTool(
@@ -650,9 +1082,13 @@ export function buildServer(athleteId: number): McpServer {
         username: z.string().nullable(),
         firstname: z.string(),
         lastname: z.string(),
+        ftp: z.number().nullable(),
+        weight_kg: z.number().nullable(),
+        bikes: z.array(z.unknown()),
+        shoes: z.array(z.unknown()),
       },
       description:
-        "Get the athlete's basic profile (name and Strava ID). Contains no credentials.",
+        "Get the athlete's profile: name, Strava ID, cached FTP and body weight (kg), and gear (bikes/shoes). Use FTP and weight to compute power-to-weight and training targets. Contains no credentials.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -660,11 +1096,19 @@ export function buildServer(athleteId: number): McpServer {
       try {
         const user = await getUserById(athleteId);
         if (!user) return errorResult("Athlete not found");
+        const gear = (user.gear ?? null) as {
+          bikes?: unknown[];
+          shoes?: unknown[];
+        } | null;
         return textResult({
           id: user.id,
           username: user.username,
           firstname: user.firstname,
           lastname: user.lastname,
+          ftp: user.ftp ?? null,
+          weight_kg: user.weight ?? null,
+          bikes: gear?.bikes ?? [],
+          shoes: gear?.shoes ?? [],
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
@@ -740,10 +1184,12 @@ export function buildServer(athleteId: number): McpServer {
         const numericId = parseInt(id, 10);
         if (Number.isNaN(numericId)) return errorResult(`Invalid id: ${id}`);
 
-        const activity = await getActivityById(numericId);
+        let activity = await getActivityById(numericId);
         if (!activity || Number(activity.athlete_id) !== athleteId) {
           return errorResult(`Activity ${id} not found`);
         }
+
+        activity = await ensureEnriched(athleteId, activity);
 
         const zones = await getAthleteZones(athleteId);
         const laps = await getLapsForActivity(numericId);

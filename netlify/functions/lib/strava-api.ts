@@ -154,12 +154,56 @@ export async function fetchActivityStreams(
   }
 }
 
-// Check if an activity might have streams worth fetching
-// (has heart rate or power data)
+// Check if an activity might have streams worth fetching. We now pull streams
+// for any recorded (non-manual) activity that has HR/power, distance, or GPS,
+// so pace/elevation/cadence/latlng streams are captured for runs/walks too.
 export function activityMightHaveStreams(activity: Record<string, unknown>): boolean {
+  if (activity.manual === true) return false;
   const hasHeartrate = activity.has_heartrate === true;
-  const hasWatts = typeof activity.average_watts === "number" || activity.device_watts === true;
-  return hasHeartrate || hasWatts;
+  const hasWatts =
+    typeof activity.average_watts === "number" || activity.device_watts === true;
+  const hasDistance =
+    typeof activity.distance === "number" && activity.distance > 0;
+  const startLatlng = activity.start_latlng;
+  const hasGps = Array.isArray(startLatlng) && startLatlng.length > 0;
+  return hasHeartrate || hasWatts || hasDistance || hasGps;
+}
+
+// Fetch Strava's per-activity time-in-zone distribution
+// (/activities/{id}/zones). Returns the raw zones array, or null on error.
+// A 404 (no zone data) resolves to an empty array so callers can mark it done.
+export async function fetchActivityZones(
+  activityId: number,
+  accessToken: string,
+): Promise<{ zones: unknown[]; rateLimit: RateLimitInfo } | null> {
+  try {
+    const response = await fetch(
+      `${STRAVA_API_BASE}/activities/${activityId}/zones`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    const rateLimit = parseRateLimitHeaders(response);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { zones: [], rateLimit };
+      }
+      console.error(
+        `Strava API: Failed to fetch zones for activity ${activityId}: ${response.status}`,
+      );
+      return null;
+    }
+
+    const data = await response.json();
+    const zones = Array.isArray(data) ? data : [];
+    return { zones, rateLimit };
+  } catch (error) {
+    console.error(
+      `Strava API: Error fetching zones for activity ${activityId}:`,
+      error,
+    );
+    return null;
+  }
 }
 
 // Fetch a page of activities from Strava
