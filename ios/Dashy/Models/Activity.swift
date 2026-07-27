@@ -45,6 +45,10 @@ struct Activity: Decodable, Identifiable {
     let elevLow: Double?
     let prCount: Int?
     let sufferScore: Double?
+    /// Strava's owner-only private note. Present only on activities whose full
+    /// detail has been fetched (recent-window refresh); read-only here because
+    /// Strava's API has no supported way to write it.
+    let privateNote: String?
 
     var startDateLocalParsed: Date? {
         Formatters.parseISODate(startDateLocal)

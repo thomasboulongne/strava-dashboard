@@ -40,6 +40,11 @@ struct SyncTriggerResponse: Decodable {
     let error: String?
 }
 
+/// App-only editable note for an activity (see netlify/functions/activity-notes.ts).
+struct ActivityNoteResponse: Decodable {
+    let note: String
+}
+
 /// Mirrors `RefreshActivitiesResponse` in src/lib/api.ts. Re-fetches recent
 /// activity detail to pick up private notes / descriptions / renames that
 /// Strava never delivers via webhooks.

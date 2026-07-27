@@ -56,6 +56,11 @@ actor APIClient {
     }
 
     @discardableResult
+    func put<T: Decodable>(_ path: String, body: Data? = nil) async throws -> T {
+        try await request(path, method: "PUT", query: [], body: body)
+    }
+
+    @discardableResult
     func delete<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         try await request(path, method: "DELETE", query: query, body: nil)
     }

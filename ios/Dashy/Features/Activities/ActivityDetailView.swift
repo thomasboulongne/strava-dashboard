@@ -21,6 +21,8 @@ struct ActivityDetailView: View {
 
                 metricsGrid
 
+                notesSection
+
                 streamsSection
             }
             .padding()
@@ -70,6 +72,72 @@ struct ActivityDetailView: View {
             }
             if let suffer = activity.sufferScore {
                 StatTile(label: "Suffer Score", value: "\(Int(suffer))")
+            }
+        }
+    }
+
+    private var trimmedPrivateNote: String? {
+        guard let note = activity.privateNote?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !note.isEmpty else { return nil }
+        return note
+    }
+
+    @ViewBuilder
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Strava's own private note, read-only (the API can't write it back).
+            if let privateNote = trimmedPrivateNote {
+                SectionHeader(title: "Strava Private Note")
+                Card {
+                    Text(privateNote)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            // App-only note, editable and stored in our DB.
+            SectionHeader(title: "My Note")
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    ZStack(alignment: .topLeading) {
+                        if viewModel.note.isEmpty {
+                            Text("Add a note for this activity…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                        }
+                        TextEditor(text: $viewModel.note)
+                            .font(.subheadline)
+                            .frame(minHeight: 90)
+                            .scrollContentBackground(.hidden)
+                    }
+
+                    if let noteError = viewModel.noteError {
+                        Text(noteError).font(.caption).foregroundStyle(.red)
+                    }
+
+                    HStack {
+                        if viewModel.noteSaved && !viewModel.hasUnsavedNote {
+                            Label("Saved", systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                        Spacer()
+                        Button {
+                            Task { await viewModel.saveNote(activityId: activity.id) }
+                        } label: {
+                            if viewModel.isSavingNote {
+                                ProgressView()
+                            } else {
+                                Text("Save")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.dashyOrange)
+                        .disabled(viewModel.isSavingNote || !viewModel.hasUnsavedNote)
+                    }
+                }
             }
         }
     }
