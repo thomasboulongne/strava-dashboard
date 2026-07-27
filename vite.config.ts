@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['dashyLogo.svg'],
+      includeAssets: ['dashyLogo.svg', 'apple-touch-icon.png'],
       workbox: {
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/\.netlify/]
