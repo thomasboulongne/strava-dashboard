@@ -24,6 +24,10 @@ export interface DbUser {
   ftp: number | null;
   weight: number | null;
   gear: Record<string, unknown> | null; // { bikes: [...], shoes: [...] }
+  // Last time we re-fetched recent DetailedActivity JSON to pick up
+  // owner-only edits (private notes, descriptions, renames) that don't fire
+  // webhooks. Used to throttle on-demand refreshes (e.g. from the MCP server).
+  metadata_refreshed_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -222,6 +226,13 @@ export async function initializeSchema() {
   `;
   await sql`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gear JSONB
+  `;
+
+  // Migration: track when we last re-fetched recent DetailedActivity JSON so we
+  // can throttle on-demand metadata refreshes (private notes/descriptions that
+  // Strava never sends via webhooks).
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS metadata_refreshed_at TIMESTAMPTZ
   `;
 
   await sql`
@@ -483,6 +494,36 @@ export async function getUserById(id: number): Promise<DbUser | null> {
   const sql = getDb();
   const result = await sql`SELECT * FROM users WHERE id = ${id}`;
   return (result[0] as DbUser) || null;
+}
+
+// All athlete IDs with a stored account. Used by the scheduled metadata-refresh
+// job to iterate every connected athlete.
+export async function getAllUserIds(): Promise<number[]> {
+  const sql = getDb();
+  const result = await sql`SELECT id FROM users`;
+  return result.map((r) => Number(r.id));
+}
+
+// Atomically claim a metadata refresh for an athlete: sets metadata_refreshed_at
+// to NOW() only if it hasn't been set within `throttleSeconds`. Returns true if
+// the caller won the claim (and should perform the refresh), false otherwise.
+// This prevents concurrent MCP calls from each triggering a refresh.
+export async function tryClaimMetadataRefresh(
+  athleteId: number,
+  throttleSeconds: number,
+): Promise<boolean> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE users
+    SET metadata_refreshed_at = NOW()
+    WHERE id = ${athleteId}
+      AND (
+        metadata_refreshed_at IS NULL
+        OR metadata_refreshed_at < NOW() - (${throttleSeconds} * INTERVAL '1 second')
+      )
+    RETURNING id
+  `;
+  return result.length > 0;
 }
 
 export async function updateUserTokens(
@@ -1526,6 +1567,26 @@ export async function getActivitiesNeedingDetail(
     SELECT id FROM activities
     WHERE athlete_id = ${athleteId}
       AND detail_synced = FALSE
+      AND start_date >= ${after}
+    ORDER BY start_date DESC
+    LIMIT ${limit}
+  `;
+  return result.map((r) => r.id as number);
+}
+
+// Recent activities (most recent first) within a window, regardless of whether
+// they're already enriched. Used by the metadata-refresh path to re-fetch the
+// DetailedActivity JSON and pick up owner-only edits (private notes, etc.).
+// `after` is an ISO date string.
+export async function getRecentActivityIds(
+  athleteId: number,
+  after: string,
+  limit: number = 60,
+): Promise<number[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT id FROM activities
+    WHERE athlete_id = ${athleteId}
       AND start_date >= ${after}
     ORDER BY start_date DESC
     LIMIT ${limit}

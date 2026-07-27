@@ -226,6 +226,21 @@ export async function triggerSync(): Promise<SyncTriggerResponse> {
   return fetchApi<SyncTriggerResponse>("/sync", { method: "POST" });
 }
 
+// Recent-details refresh (picks up private notes / descriptions / renames that
+// Strava never delivers via webhooks).
+export interface RefreshActivitiesResponse {
+  status: "completed" | "paused" | "failed";
+  refreshed?: number;
+  failed?: number;
+  error?: string;
+}
+
+export async function triggerActivityRefresh(): Promise<RefreshActivitiesResponse> {
+  return fetchApi<RefreshActivitiesResponse>("/refresh-activities", {
+    method: "POST",
+  });
+}
+
 // Streams sync types
 export interface StreamsSyncStatusResponse {
   streams: StreamsSyncProgress;

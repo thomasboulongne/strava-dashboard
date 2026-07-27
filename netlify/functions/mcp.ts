@@ -5,6 +5,7 @@ import type { Context } from "@netlify/functions";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { buildServer } from "./lib/mcp-server.js";
 import { getApiKey, touchApiKey } from "./lib/db.js";
+import { maybeRefreshRecentMetadata } from "./lib/refresh.js";
 
 // Extract the per-user key from the request. ChatGPT "No Authentication"
 // connectors can only carry the secret in the URL, so the query param is the
@@ -109,6 +110,20 @@ export default async function handler(request: Request, _context: Context) {
     );
   }
   console.log(`[mcp ${reqId}] athlete=${athleteId} (${Date.now() - t0}ms)`);
+
+  // Before serving a tool call, opportunistically refresh recent activity
+  // metadata (private notes, descriptions, renames) that Strava never delivers
+  // via webhooks. Throttled per-athlete so only the first call after an idle
+  // gap pays the cost; everything else short-circuits. Best-effort - failures
+  // never block the tool call.
+  if (rpcInfo.startsWith("tools/call")) {
+    const refresh = await maybeRefreshRecentMetadata(athleteId);
+    if (refresh) {
+      console.log(
+        `[mcp ${reqId}] metadata refresh: ${refresh.refreshed} refreshed, ${refresh.failed} failed${refresh.paused ? " (paused)" : ""} (${Date.now() - t0}ms)`,
+      );
+    }
+  }
 
   const server = buildServer(athleteId);
   const transport = new WebStandardStreamableHTTPServerTransport({

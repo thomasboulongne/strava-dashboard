@@ -1,6 +1,14 @@
 import { Flex, Text, Button, Spinner, Tooltip, Box } from "@radix-ui/themes";
-import { FiRefreshCw, FiCheck, FiActivity, FiLayers } from "react-icons/fi";
+import {
+  FiRefreshCw,
+  FiCheck,
+  FiActivity,
+  FiLayers,
+  FiFileText,
+} from "react-icons/fi";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSync } from "../hooks/useSync";
+import { triggerActivityRefresh } from "../lib/api";
 
 interface StreamsIndicatorProps {
   streamsProgress: {
@@ -126,6 +134,31 @@ function LapsIndicator({
   );
 }
 
+function RefreshDetailsButton() {
+  const queryClient = useQueryClient();
+  const { mutate, isPending } = useMutation({
+    mutationFn: triggerActivityRefresh,
+    onSuccess: (data) => {
+      if (data.refreshed && data.refreshed > 0) {
+        queryClient.invalidateQueries({ queryKey: ["activities"] });
+      }
+    },
+  });
+
+  return (
+    <Tooltip content="Refresh recent details (private notes, descriptions, renames)">
+      <Button
+        size="1"
+        variant="ghost"
+        onClick={() => mutate()}
+        disabled={isPending}
+      >
+        {isPending ? <Spinner size="1" /> : <FiFileText size={12} />}
+      </Button>
+    </Tooltip>
+  );
+}
+
 export function SyncStatus() {
   const {
     activityCount,
@@ -182,6 +215,7 @@ export function SyncStatus() {
           <FiRefreshCw size={12} />
         </Button>
       </Tooltip>
+      <RefreshDetailsButton />
     </Flex>
   );
 }
