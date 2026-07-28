@@ -55,4 +55,6 @@ enum CacheKey {
     static let analyticsZones = "analytics-zones"
     static let analyticsStreams = "analytics-streams"
     static func trainingPlan(_ week: String) -> String { "training-plan-\(week)" }
+    static let objectives = "objectives"
+    static let activeMacroPlan = "active-macro-plan"
 }

@@ -12,6 +12,15 @@ import type {
   DeletePlanResponse,
   WeeklyReportResponse,
   SaveWeeklyReportResponse,
+  Objective,
+  ObjectiveType,
+  ObjectivePriority,
+  ObjectivesResponse,
+  MacroPlan,
+  MacroPlansResponse,
+  MacroPlanResponse,
+  TrainingBlock,
+  BlockType,
 } from "./strava-types";
 import {
   getStoredSession,
@@ -477,6 +486,151 @@ export async function deleteTrainingWorkout(
   return fetchApi<{ success: boolean }>(`/training-plans/${workoutId}`, {
     method: "DELETE",
   });
+}
+
+// -------------------- Objectives (calendar) endpoints --------------------
+
+export async function getObjectives(
+  from?: string,
+  to?: string,
+): Promise<ObjectivesResponse> {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return fetchApi<ObjectivesResponse>(`/objectives${qs ? `?${qs}` : ""}`);
+}
+
+export async function createObjective(objective: {
+  title: string;
+  objective_type: ObjectiveType;
+  start_date: string;
+  end_date?: string | null;
+  priority?: ObjectivePriority | null;
+  notes?: string | null;
+}): Promise<{ success: boolean; objective: Objective }> {
+  return fetchApi("/objectives", {
+    method: "POST",
+    body: JSON.stringify(objective),
+  });
+}
+
+export async function updateObjective(
+  id: number,
+  updates: Partial<{
+    title: string;
+    objective_type: ObjectiveType;
+    start_date: string;
+    end_date: string | null;
+    priority: ObjectivePriority | null;
+    notes: string | null;
+  }>,
+): Promise<{ success: boolean; objective: Objective }> {
+  return fetchApi(`/objectives/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteObjective(
+  id: number,
+): Promise<{ success: boolean }> {
+  return fetchApi(`/objectives/${id}`, { method: "DELETE" });
+}
+
+// -------------------- Macro plan + training block endpoints --------------------
+
+export async function getMacroPlans(): Promise<MacroPlansResponse> {
+  return fetchApi<MacroPlansResponse>("/macro-plans");
+}
+
+export async function getActiveMacroPlan(): Promise<MacroPlanResponse> {
+  return fetchApi<MacroPlanResponse>("/macro-plans?active=1");
+}
+
+export async function getMacroPlan(id: number): Promise<MacroPlanResponse> {
+  return fetchApi<MacroPlanResponse>(`/macro-plans/${id}`);
+}
+
+export async function createMacroPlan(plan: {
+  name: string;
+  start_date: string;
+  end_date: string;
+  goal?: string | null;
+  goal_objective_id?: number | null;
+  is_active?: boolean;
+  notes?: string | null;
+}): Promise<{ success: boolean; plan: MacroPlan }> {
+  return fetchApi("/macro-plans", {
+    method: "POST",
+    body: JSON.stringify(plan),
+  });
+}
+
+export async function updateMacroPlan(
+  id: number,
+  updates: Partial<{
+    name: string;
+    start_date: string;
+    end_date: string;
+    goal: string | null;
+    goal_objective_id: number | null;
+    is_active: boolean;
+    notes: string | null;
+  }>,
+): Promise<{ success: boolean; plan: MacroPlan }> {
+  return fetchApi(`/macro-plans/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteMacroPlan(
+  id: number,
+): Promise<{ success: boolean }> {
+  return fetchApi(`/macro-plans/${id}`, { method: "DELETE" });
+}
+
+export async function createTrainingBlock(
+  planId: number,
+  block: {
+    name: string;
+    block_type: BlockType;
+    start_date: string;
+    end_date: string;
+    focus?: string | null;
+    color?: string | null;
+    block_order?: number;
+  },
+): Promise<{ success: boolean; block: TrainingBlock }> {
+  return fetchApi(`/macro-plans/${planId}/blocks`, {
+    method: "POST",
+    body: JSON.stringify(block),
+  });
+}
+
+export async function updateTrainingBlock(
+  blockId: number,
+  updates: Partial<{
+    name: string;
+    block_type: BlockType;
+    start_date: string;
+    end_date: string;
+    focus: string | null;
+    color: string | null;
+    block_order: number;
+  }>,
+): Promise<{ success: boolean; block: TrainingBlock }> {
+  return fetchApi(`/macro-plans/blocks/${blockId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteTrainingBlock(
+  blockId: number,
+): Promise<{ success: boolean }> {
+  return fetchApi(`/macro-plans/blocks/${blockId}`, { method: "DELETE" });
 }
 
 // Weekly report endpoints

@@ -205,6 +205,51 @@ export interface DbIntervalsIcuCredentials {
   updated_at: Date;
 }
 
+// A key dated goal the athlete is training toward (race, test, milestone, camp).
+export interface DbObjective {
+  id: number;
+  athlete_id: number;
+  title: string;
+  objective_type: string; // race | test | milestone | camp | note
+  priority: string | null; // 'A' | 'B' | 'C' | null (mainly for races)
+  start_date: Date;
+  end_date: Date | null; // null = single day
+  notes: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// A named periodization plan (season) holding an ordered set of training blocks.
+export interface DbMacroPlan {
+  id: number;
+  athlete_id: number;
+  name: string;
+  goal: string | null;
+  goal_objective_id: number | null; // optional link to the A-race objective
+  start_date: Date;
+  end_date: Date;
+  is_active: boolean; // the currently-followed plan
+  notes: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// A periodization phase within a macro plan (base, build, peak, taper, ...).
+export interface DbTrainingBlock {
+  id: number;
+  athlete_id: number;
+  macro_plan_id: number;
+  name: string;
+  block_type: string; // base | build | peak | taper | recovery | race
+  start_date: Date;
+  end_date: Date;
+  focus: string | null;
+  color: string | null;
+  block_order: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Schema initialization - run once to set up tables
 export async function initializeSchema() {
   const sql = getDb();
@@ -481,6 +526,78 @@ export async function initializeSchema() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Objectives - key dated goals the athlete trains toward (races, tests, ...).
+  // Created before macro_plans because macro_plans references it.
+  await sql`
+    CREATE TABLE IF NOT EXISTS objectives (
+      id SERIAL PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      objective_type TEXT NOT NULL,
+      priority TEXT,
+      start_date DATE NOT NULL,
+      end_date DATE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_objectives_athlete_id ON objectives(athlete_id)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_objectives_start_date ON objectives(start_date)
+  `;
+
+  // Macro plans - a named periodization plan (season) tied to an optional A-race.
+  await sql`
+    CREATE TABLE IF NOT EXISTS macro_plans (
+      id SERIAL PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      goal TEXT,
+      goal_objective_id INTEGER REFERENCES objectives(id) ON DELETE SET NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_macro_plans_athlete_id ON macro_plans(athlete_id)
+  `;
+
+  // Training blocks - periodization phases inside a macro plan.
+  await sql`
+    CREATE TABLE IF NOT EXISTS training_blocks (
+      id SERIAL PRIMARY KEY,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      macro_plan_id INTEGER NOT NULL REFERENCES macro_plans(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      block_type TEXT NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      focus TEXT,
+      color TEXT,
+      block_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_training_blocks_athlete_id ON training_blocks(athlete_id)
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_training_blocks_macro_plan_id ON training_blocks(macro_plan_id)
   `;
 
   return { success: true };
@@ -1438,6 +1555,330 @@ export async function deleteTrainingWorkoutById(
     DELETE FROM training_workouts WHERE id = ${workoutId} RETURNING *
   `;
   return (result[0] as DbTrainingWorkout) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Objectives (key dated goals) operations
+// ---------------------------------------------------------------------------
+
+// List objectives, optionally restricted to those whose span overlaps
+// [from, to] (an objective spans [start_date, COALESCE(end_date, start_date)]).
+export async function getObjectives(
+  athleteId: number,
+  from?: string | null,
+  to?: string | null,
+): Promise<DbObjective[]> {
+  const sql = getDb();
+  let result;
+  if (from && to) {
+    result = await sql`
+      SELECT * FROM objectives
+      WHERE athlete_id = ${athleteId}
+        AND start_date <= ${to}
+        AND COALESCE(end_date, start_date) >= ${from}
+      ORDER BY start_date ASC, id ASC
+    `;
+  } else if (from) {
+    result = await sql`
+      SELECT * FROM objectives
+      WHERE athlete_id = ${athleteId}
+        AND COALESCE(end_date, start_date) >= ${from}
+      ORDER BY start_date ASC, id ASC
+    `;
+  } else if (to) {
+    result = await sql`
+      SELECT * FROM objectives
+      WHERE athlete_id = ${athleteId}
+        AND start_date <= ${to}
+      ORDER BY start_date ASC, id ASC
+    `;
+  } else {
+    result = await sql`
+      SELECT * FROM objectives
+      WHERE athlete_id = ${athleteId}
+      ORDER BY start_date ASC, id ASC
+    `;
+  }
+  return result as DbObjective[];
+}
+
+export async function getObjectiveById(
+  objectiveId: number,
+): Promise<DbObjective | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM objectives WHERE id = ${objectiveId}
+  `;
+  return (result[0] as DbObjective) || null;
+}
+
+export async function createObjective(objective: {
+  athlete_id: number;
+  title: string;
+  objective_type: string;
+  priority: string | null;
+  start_date: string; // YYYY-MM-DD
+  end_date: string | null;
+  notes: string | null;
+}): Promise<DbObjective> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO objectives (
+      athlete_id, title, objective_type, priority, start_date, end_date, notes, updated_at
+    )
+    VALUES (
+      ${objective.athlete_id}, ${objective.title}, ${objective.objective_type},
+      ${objective.priority}, ${objective.start_date}, ${objective.end_date},
+      ${objective.notes}, NOW()
+    )
+    RETURNING *
+  `;
+  return result[0] as DbObjective;
+}
+
+// Full-field update: callers merge with the existing row before calling so a
+// null clears the column and an omitted field keeps its prior value.
+export async function updateObjective(
+  objectiveId: number,
+  updates: {
+    title: string;
+    objective_type: string;
+    priority: string | null;
+    start_date: string;
+    end_date: string | null;
+    notes: string | null;
+  },
+): Promise<DbObjective | null> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE objectives
+    SET title = ${updates.title},
+        objective_type = ${updates.objective_type},
+        priority = ${updates.priority},
+        start_date = ${updates.start_date},
+        end_date = ${updates.end_date},
+        notes = ${updates.notes},
+        updated_at = NOW()
+    WHERE id = ${objectiveId}
+    RETURNING *
+  `;
+  return (result[0] as DbObjective) || null;
+}
+
+export async function deleteObjectiveById(
+  objectiveId: number,
+): Promise<DbObjective | null> {
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM objectives WHERE id = ${objectiveId} RETURNING *
+  `;
+  return (result[0] as DbObjective) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Macro plans + training blocks operations
+// ---------------------------------------------------------------------------
+
+export async function getMacroPlans(
+  athleteId: number,
+): Promise<DbMacroPlan[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM macro_plans
+    WHERE athlete_id = ${athleteId}
+    ORDER BY is_active DESC, start_date DESC, id DESC
+  `;
+  return result as DbMacroPlan[];
+}
+
+export async function getMacroPlanById(
+  planId: number,
+): Promise<DbMacroPlan | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM macro_plans WHERE id = ${planId}
+  `;
+  return (result[0] as DbMacroPlan) || null;
+}
+
+// The currently-followed plan (most recent active one, if any).
+export async function getActiveMacroPlan(
+  athleteId: number,
+): Promise<DbMacroPlan | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM macro_plans
+    WHERE athlete_id = ${athleteId} AND is_active = TRUE
+    ORDER BY start_date DESC, id DESC
+    LIMIT 1
+  `;
+  return (result[0] as DbMacroPlan) || null;
+}
+
+export async function getTrainingBlocksForPlan(
+  planId: number,
+): Promise<DbTrainingBlock[]> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM training_blocks
+    WHERE macro_plan_id = ${planId}
+    ORDER BY block_order ASC, start_date ASC, id ASC
+  `;
+  return result as DbTrainingBlock[];
+}
+
+// Clear the active flag on the athlete's other plans (single active plan).
+export async function deactivateOtherMacroPlans(
+  athleteId: number,
+  exceptId: number,
+): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE macro_plans
+    SET is_active = FALSE, updated_at = NOW()
+    WHERE athlete_id = ${athleteId} AND id <> ${exceptId} AND is_active = TRUE
+  `;
+}
+
+export async function createMacroPlan(plan: {
+  athlete_id: number;
+  name: string;
+  goal: string | null;
+  goal_objective_id: number | null;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  notes: string | null;
+}): Promise<DbMacroPlan> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO macro_plans (
+      athlete_id, name, goal, goal_objective_id, start_date, end_date,
+      is_active, notes, updated_at
+    )
+    VALUES (
+      ${plan.athlete_id}, ${plan.name}, ${plan.goal}, ${plan.goal_objective_id},
+      ${plan.start_date}, ${plan.end_date}, ${plan.is_active}, ${plan.notes}, NOW()
+    )
+    RETURNING *
+  `;
+  return result[0] as DbMacroPlan;
+}
+
+export async function updateMacroPlan(
+  planId: number,
+  updates: {
+    name: string;
+    goal: string | null;
+    goal_objective_id: number | null;
+    start_date: string;
+    end_date: string;
+    is_active: boolean;
+    notes: string | null;
+  },
+): Promise<DbMacroPlan | null> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE macro_plans
+    SET name = ${updates.name},
+        goal = ${updates.goal},
+        goal_objective_id = ${updates.goal_objective_id},
+        start_date = ${updates.start_date},
+        end_date = ${updates.end_date},
+        is_active = ${updates.is_active},
+        notes = ${updates.notes},
+        updated_at = NOW()
+    WHERE id = ${planId}
+    RETURNING *
+  `;
+  return (result[0] as DbMacroPlan) || null;
+}
+
+export async function deleteMacroPlanById(
+  planId: number,
+): Promise<DbMacroPlan | null> {
+  const sql = getDb();
+  // training_blocks rows cascade via ON DELETE CASCADE.
+  const result = await sql`
+    DELETE FROM macro_plans WHERE id = ${planId} RETURNING *
+  `;
+  return (result[0] as DbMacroPlan) || null;
+}
+
+export async function getTrainingBlockById(
+  blockId: number,
+): Promise<DbTrainingBlock | null> {
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM training_blocks WHERE id = ${blockId}
+  `;
+  return (result[0] as DbTrainingBlock) || null;
+}
+
+export async function createTrainingBlock(block: {
+  athlete_id: number;
+  macro_plan_id: number;
+  name: string;
+  block_type: string;
+  start_date: string;
+  end_date: string;
+  focus: string | null;
+  color: string | null;
+  block_order: number;
+}): Promise<DbTrainingBlock> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO training_blocks (
+      athlete_id, macro_plan_id, name, block_type, start_date, end_date,
+      focus, color, block_order, updated_at
+    )
+    VALUES (
+      ${block.athlete_id}, ${block.macro_plan_id}, ${block.name},
+      ${block.block_type}, ${block.start_date}, ${block.end_date},
+      ${block.focus}, ${block.color}, ${block.block_order}, NOW()
+    )
+    RETURNING *
+  `;
+  return result[0] as DbTrainingBlock;
+}
+
+export async function updateTrainingBlock(
+  blockId: number,
+  updates: {
+    name: string;
+    block_type: string;
+    start_date: string;
+    end_date: string;
+    focus: string | null;
+    color: string | null;
+    block_order: number;
+  },
+): Promise<DbTrainingBlock | null> {
+  const sql = getDb();
+  const result = await sql`
+    UPDATE training_blocks
+    SET name = ${updates.name},
+        block_type = ${updates.block_type},
+        start_date = ${updates.start_date},
+        end_date = ${updates.end_date},
+        focus = ${updates.focus},
+        color = ${updates.color},
+        block_order = ${updates.block_order},
+        updated_at = NOW()
+    WHERE id = ${blockId}
+    RETURNING *
+  `;
+  return (result[0] as DbTrainingBlock) || null;
+}
+
+export async function deleteTrainingBlockById(
+  blockId: number,
+): Promise<DbTrainingBlock | null> {
+  const sql = getDb();
+  const result = await sql`
+    DELETE FROM training_blocks WHERE id = ${blockId} RETURNING *
+  `;
+  return (result[0] as DbTrainingBlock) || null;
 }
 
 // Get activities for a specific date (for matching)

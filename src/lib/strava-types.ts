@@ -314,6 +314,63 @@ export interface TrainingWorkout {
   updated_at: string;
 }
 
+// Objectives + macro plan (training calendar) types
+export type ObjectiveType = "race" | "test" | "milestone" | "camp" | "note";
+export type ObjectivePriority = "A" | "B" | "C";
+export type BlockType =
+  | "base"
+  | "build"
+  | "peak"
+  | "taper"
+  | "recovery"
+  | "race";
+
+export interface Objective {
+  id: number;
+  title: string;
+  objective_type: ObjectiveType;
+  priority: ObjectivePriority | null;
+  start_date: string; // YYYY-MM-DD
+  end_date: string | null; // YYYY-MM-DD, null = single day
+  notes: string | null;
+}
+
+export interface TrainingBlock {
+  id: number;
+  macro_plan_id: number;
+  name: string;
+  block_type: BlockType;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  focus: string | null;
+  color: string | null;
+  block_order: number;
+}
+
+export interface MacroPlan {
+  id: number;
+  name: string;
+  goal: string | null;
+  goal_objective_id: number | null;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  is_active: boolean;
+  notes: string | null;
+  blocks?: TrainingBlock[]; // present on single-plan / active-plan responses
+}
+
+export interface ObjectivesResponse {
+  objectives: Objective[];
+}
+
+export interface MacroPlansResponse {
+  plans: MacroPlan[];
+}
+
+export interface MacroPlanResponse {
+  plan: MacroPlan | null;
+}
+
 // Interval compliance types
 export interface IntervalResult {
   index: number; // 1, 2, 3...
