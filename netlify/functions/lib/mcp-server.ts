@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   getActivitiesForAthlete,
   getActivityById,
+  getActivityNotesForActivities,
   getActivityStreams,
   getActivityZones,
   getLapsForActivity,
@@ -63,6 +64,30 @@ async function resolveFtp(
   const estimated = estimateFtpFromPowerZones(zones?.power_zones);
   if (estimated) return { ftp: estimated, source: "estimated_from_zones" };
   return { ftp: null, source: null };
+}
+
+// Overlay the app-only note (from activity_notes) onto each activity's
+// private_note field, so every MCP surface exposes a single private_note that
+// prefers the custom note and falls back to Strava's own. Scoped to the MCP
+// server on purpose: the iOS app still shows the two notes distinctly.
+// Must run AFTER any enrichment, since enrichment overwrites the data blob
+// (including private_note) with the fresh Strava JSON.
+async function overlayNotes(activities: DbActivity[]): Promise<DbActivity[]> {
+  if (activities.length === 0) return activities;
+  const notes = await getActivityNotesForActivities(
+    activities.map((a) => Number(a.id)),
+  );
+  const byId = new Map(notes.map((n) => [Number(n.activity_id), n.note]));
+  return activities.map((a) => {
+    const custom = byId.get(Number(a.id));
+    if (typeof custom !== "string" || !custom.trim()) return a;
+    return { ...a, data: { ...a.data, private_note: custom } };
+  });
+}
+
+async function overlayNote(activity: DbActivity): Promise<DbActivity> {
+  const [merged] = await overlayNotes([activity]);
+  return merged;
 }
 
 // --- Projections / summaries -------------------------------------------------
@@ -546,7 +571,9 @@ export function buildServer(athleteId: number): McpServer {
           after,
         });
 
-        let activities = dbActivities.map((a: DbActivity) => a.data);
+        let activities = (await overlayNotes(dbActivities)).map(
+          (a: DbActivity) => a.data,
+        );
         if (type) {
           const t = type.toLowerCase();
           activities = activities.filter(
@@ -600,6 +627,7 @@ export function buildServer(athleteId: number): McpServer {
 
         // Enrich on-demand so older activities expose full detail/streams/zones.
         activity = await ensureEnriched(athleteId, activity);
+        activity = await overlayNote(activity);
 
         const payload: Record<string, unknown> = {
           activity: activity.data,
@@ -1190,6 +1218,7 @@ export function buildServer(athleteId: number): McpServer {
         }
 
         activity = await ensureEnriched(athleteId, activity);
+        activity = await overlayNote(activity);
 
         const zones = await getAthleteZones(athleteId);
         const laps = await getLapsForActivity(numericId);
@@ -1254,11 +1283,13 @@ export function buildServer(athleteId: number): McpServer {
           .toISOString()
           .slice(0, 10);
         const cap = limit ?? 1000;
-        const dbActivities = await getActivitiesForAthlete(athleteId, {
-          limit: cap,
-          after: after ?? defaultAfter,
-          before,
-        });
+        const dbActivities = await overlayNotes(
+          await getActivitiesForAthlete(athleteId, {
+            limit: cap,
+            after: after ?? defaultAfter,
+            before,
+          }),
+        );
 
         const n = (v: unknown) =>
           typeof v === "number" && !Number.isNaN(v) ? v : null;

@@ -24,11 +24,25 @@ final class ActivityDetailViewModel: ObservableObject {
     /// Label describing the chart x-axis (e.g. "Distance (km)").
     @Published var xAxisLabel = "Time (min)"
 
+    /// App-only editable note (persisted in our DB, not synced to Strava).
+    @Published var note: String = ""
+    @Published var isSavingNote = false
+    @Published var noteError: String?
+    @Published var noteSaved = false
+    /// The last value loaded/saved, used to detect unsaved edits.
+    private var savedNote: String = ""
+
+    var hasUnsavedNote: Bool { note != savedNote }
+
     private var hasLoaded = false
 
     func loadIfNeeded(activity: Activity) async {
         guard !hasLoaded else { return }
-        await load(activity: activity)
+        hasLoaded = true
+        // Streams and the note are independent; fetch them concurrently.
+        async let streams: Void = load(activity: activity)
+        async let noteLoad: Void = loadNote(activityId: activity.id)
+        _ = await (streams, noteLoad)
     }
 
     func load(activity: Activity) async {
@@ -39,13 +53,41 @@ final class ActivityDetailViewModel: ObservableObject {
             if let streams = response.streams[activity.id] {
                 build(from: streams)
             }
-            hasLoaded = true
         } catch let error as APIError {
             if error.statusCode != 401 { errorMessage = error.errorDescription }
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    func loadNote(activityId: Int) async {
+        do {
+            let response = try await DashyAPI.activityNote(activityId: activityId)
+            note = response.note
+            savedNote = response.note
+        } catch let error as APIError {
+            if error.statusCode != 401 { noteError = error.errorDescription }
+        } catch {
+            noteError = error.localizedDescription
+        }
+    }
+
+    func saveNote(activityId: Int) async {
+        isSavingNote = true
+        noteError = nil
+        noteSaved = false
+        do {
+            let response = try await DashyAPI.updateActivityNote(activityId: activityId, note: note)
+            note = response.note
+            savedNote = response.note
+            noteSaved = true
+        } catch let error as APIError {
+            if error.statusCode != 401 { noteError = error.errorDescription }
+        } catch {
+            noteError = error.localizedDescription
+        }
+        isSavingNote = false
     }
 
     private func build(from streams: ActivityStreams) {

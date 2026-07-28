@@ -30,6 +30,24 @@ enum DashyAPI {
         ])
     }
 
+    /// Fetches the app-only editable note for an activity (stored in our DB,
+    /// separate from Strava's read-only private note).
+    static func activityNote(activityId: Int) async throws -> ActivityNoteResponse {
+        try await APIClient.shared.get("activity-notes", query: [
+            URLQueryItem(name: "activityId", value: String(activityId))
+        ])
+    }
+
+    /// Saves the app-only editable note for an activity.
+    @discardableResult
+    static func updateActivityNote(activityId: Int, note: String) async throws -> ActivityNoteResponse {
+        let body = try jsonBody([
+            "activityId": activityId,
+            "note": note,
+        ])
+        return try await APIClient.shared.put("activity-notes", body: body)
+    }
+
     static func syncStatus() async throws -> SyncStatusResponse {
         try await APIClient.shared.get("sync")
     }

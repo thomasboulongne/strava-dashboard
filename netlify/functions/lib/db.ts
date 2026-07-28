@@ -164,6 +164,18 @@ export interface DbActivityLap {
   updated_at: Date;
 }
 
+// App-only note attached to an activity, editable from the Dashy clients.
+// Stored separately from the Strava `data` blob (which the metadata refresh
+// overwrites) and deliberately NOT synced to Strava: the API exposes the
+// private note on reads but offers no supported way to write it.
+export interface DbActivityNote {
+  activity_id: number;
+  athlete_id: number;
+  note: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // Weekly report saved by the athlete
 export interface DbWeeklyReport {
   id: number;
@@ -325,6 +337,23 @@ export async function initializeSchema() {
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_activity_zones_athlete_id ON activity_zones(athlete_id)
+  `;
+
+  // Activity notes table - app-only notes editable from the clients. Kept in a
+  // separate table (not the `data` blob, which the metadata refresh overwrites)
+  // and never synced to Strava, since Strava's API can't write private notes.
+  await sql`
+    CREATE TABLE IF NOT EXISTS activity_notes (
+      activity_id BIGINT PRIMARY KEY REFERENCES activities(id) ON DELETE CASCADE,
+      athlete_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_activity_notes_athlete_id ON activity_notes(athlete_id)
   `;
 
   // Athlete zones table - stores HR and power zone definitions from Strava
@@ -1060,6 +1089,46 @@ export async function getActivityZones(
 export async function deleteActivityZones(activityId: number): Promise<void> {
   const sql = getDb();
   await sql`DELETE FROM activity_zones WHERE activity_id = ${activityId}`;
+}
+
+// Activity note operations (app-only, not synced to Strava)
+export async function getActivityNote(
+  activityId: number,
+): Promise<DbActivityNote | null> {
+  const sql = getDb();
+  const result =
+    await sql`SELECT * FROM activity_notes WHERE activity_id = ${activityId}`;
+  return (result[0] as DbActivityNote) || null;
+}
+
+// Batch-fetch app notes for a set of activities (used by the MCP server to
+// overlay the custom note onto the private_note field).
+export async function getActivityNotesForActivities(
+  activityIds: number[],
+): Promise<DbActivityNote[]> {
+  if (activityIds.length === 0) return [];
+  const sql = getDb();
+  const result = await sql`
+    SELECT * FROM activity_notes WHERE activity_id = ANY(${activityIds})
+  `;
+  return result as DbActivityNote[];
+}
+
+export async function upsertActivityNote(
+  activityId: number,
+  athleteId: number,
+  note: string,
+): Promise<DbActivityNote> {
+  const sql = getDb();
+  const result = await sql`
+    INSERT INTO activity_notes (activity_id, athlete_id, note, updated_at)
+    VALUES (${activityId}, ${athleteId}, ${note}, NOW())
+    ON CONFLICT (activity_id) DO UPDATE SET
+      note = EXCLUDED.note,
+      updated_at = NOW()
+    RETURNING *
+  `;
+  return result[0] as DbActivityNote;
 }
 
 // Athlete zones operations
