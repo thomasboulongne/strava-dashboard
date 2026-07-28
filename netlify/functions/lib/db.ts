@@ -244,6 +244,9 @@ export interface DbTrainingBlock {
   start_date: Date;
   end_date: Date;
   focus: string | null;
+  notes: string | null;
+  target_weekly_hours: string | null;
+  recovery_guidance: string | null;
   color: string | null;
   block_order: number;
   created_at: Date;
@@ -585,11 +588,22 @@ export async function initializeSchema() {
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       focus TEXT,
+      notes TEXT,
+      target_weekly_hours TEXT,
+      recovery_guidance TEXT,
       color TEXT,
       block_order INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `;
+
+  // Incremental columns for existing deployments (coaching context fields).
+  await sql`
+    ALTER TABLE training_blocks
+      ADD COLUMN IF NOT EXISTS notes TEXT,
+      ADD COLUMN IF NOT EXISTS target_weekly_hours TEXT,
+      ADD COLUMN IF NOT EXISTS recovery_guidance TEXT
   `;
 
   await sql`
@@ -1823,6 +1837,9 @@ export async function createTrainingBlock(block: {
   start_date: string;
   end_date: string;
   focus: string | null;
+  notes: string | null;
+  target_weekly_hours: string | null;
+  recovery_guidance: string | null;
   color: string | null;
   block_order: number;
 }): Promise<DbTrainingBlock> {
@@ -1830,12 +1847,14 @@ export async function createTrainingBlock(block: {
   const result = await sql`
     INSERT INTO training_blocks (
       athlete_id, macro_plan_id, name, block_type, start_date, end_date,
-      focus, color, block_order, updated_at
+      focus, notes, target_weekly_hours, recovery_guidance, color, block_order,
+      updated_at
     )
     VALUES (
       ${block.athlete_id}, ${block.macro_plan_id}, ${block.name},
       ${block.block_type}, ${block.start_date}, ${block.end_date},
-      ${block.focus}, ${block.color}, ${block.block_order}, NOW()
+      ${block.focus}, ${block.notes}, ${block.target_weekly_hours},
+      ${block.recovery_guidance}, ${block.color}, ${block.block_order}, NOW()
     )
     RETURNING *
   `;
@@ -1850,6 +1869,9 @@ export async function updateTrainingBlock(
     start_date: string;
     end_date: string;
     focus: string | null;
+    notes: string | null;
+    target_weekly_hours: string | null;
+    recovery_guidance: string | null;
     color: string | null;
     block_order: number;
   },
@@ -1862,6 +1884,9 @@ export async function updateTrainingBlock(
         start_date = ${updates.start_date},
         end_date = ${updates.end_date},
         focus = ${updates.focus},
+        notes = ${updates.notes},
+        target_weekly_hours = ${updates.target_weekly_hours},
+        recovery_guidance = ${updates.recovery_guidance},
         color = ${updates.color},
         block_order = ${updates.block_order},
         updated_at = NOW()

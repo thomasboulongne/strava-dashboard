@@ -559,6 +559,9 @@ function serializeBlock(b: DbTrainingBlock) {
     start_date: fmtDate(b.start_date),
     end_date: fmtDate(b.end_date),
     focus: b.focus,
+    notes: b.notes,
+    target_weekly_hours: b.target_weekly_hours,
+    recovery_guidance: b.recovery_guidance,
     color: b.color,
     block_order: b.block_order,
   };
@@ -1909,9 +1912,10 @@ export function buildServer(athleteId: number): McpServer {
       outputSchema: {
         objectives: z.array(z.unknown()),
         active_plan: z.unknown().nullable(),
+        current_block_id: z.number().nullable(),
       },
       description:
-        "Load the athlete's planning context: their objectives (key dated goals like races, tests, milestones, camps) optionally filtered to a date range, PLUS the currently-active macro plan and its ordered training blocks (periodization phases: base/build/peak/taper/recovery/race). Call this FIRST when building or adjusting a training plan so weekly workouts fit the current block's focus and the upcoming objectives. `active_plan` is null if none is set.",
+        "Load the athlete's planning context: their objectives (key dated goals like races, tests, milestones, camps) optionally filtered to a date range, PLUS the currently-active macro plan and its ordered training blocks (periodization phases: base/build/peak/taper/recovery/race). Call this FIRST when building or adjusting a training plan so weekly workouts fit the current block's focus and the upcoming objectives. `active_plan` is null if none is set. `current_block_id` is the id of the active plan's block covering today (by date range), or null if none applies.",
       inputSchema: {
         from: z
           .string()
@@ -1931,9 +1935,16 @@ export function buildServer(athleteId: number): McpServer {
         const objectives = await getObjectives(athleteId, from ?? null, to ?? null);
         const plan = await getActiveMacroPlan(athleteId);
         const blocks = plan ? await getTrainingBlocksForPlan(plan.id) : [];
+        const today = new Date().toISOString().slice(0, 10);
+        const currentBlock = blocks.find((b) => {
+          const start = fmtDate(b.start_date);
+          const end = fmtDate(b.end_date);
+          return start !== null && end !== null && start <= today && today <= end;
+        });
         return textResult({
           objectives: objectives.map(serializeObjective),
           active_plan: plan ? serializePlan(plan, blocks) : null,
+          current_block_id: currentBlock ? currentBlock.id : null,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
@@ -2225,14 +2236,23 @@ export function buildServer(athleteId: number): McpServer {
       title: "Add a training block",
       outputSchema: { block: z.unknown() },
       description:
-        "Add a periodization phase to a macro plan (base, build, peak, taper, recovery, or race) spanning `start_date`..`end_date`. `focus` describes what to emphasize. Blocks are ordered; omit `block_order` to append.",
+        "Add a periodization phase to a macro plan (base, build, peak, taper, recovery, or race) spanning `start_date`..`end_date`. `focus` is a short primary emphasis; `notes` holds broader rationale/coaching context; `target_weekly_hours` is flexible volume guidance (e.g. '14–17 hours, with occasional larger weeks'); `recovery_guidance` describes recovery cadence (e.g. 'Reduce volume every fourth week'). Blocks are ordered; omit `block_order` to append.",
       inputSchema: {
         macro_plan_id: z.number().int().describe("Plan id to add the block to"),
         name: z.string().describe("Block name, e.g. 'Base 1'"),
         block_type: z.enum(BLOCK_TYPES).describe("base | build | peak | taper | recovery | race"),
         start_date: z.string().describe("ISO date (YYYY-MM-DD)"),
         end_date: z.string().describe("ISO date (YYYY-MM-DD)"),
-        focus: z.string().optional().describe("What to emphasize this block"),
+        focus: z.string().optional().describe("Short description of the block's primary emphasis"),
+        notes: z.string().optional().describe("Broader rationale or important coaching context"),
+        target_weekly_hours: z
+          .string()
+          .optional()
+          .describe("Flexible volume guidance, e.g. '14–17 hours, with occasional larger weeks'"),
+        recovery_guidance: z
+          .string()
+          .optional()
+          .describe("Recovery guidance, e.g. 'Reduce volume every fourth week'"),
         color: z.string().optional().describe("Optional UI color hint"),
         block_order: z.number().int().min(0).optional(),
       },
@@ -2262,6 +2282,9 @@ export function buildServer(athleteId: number): McpServer {
           start_date: args.start_date,
           end_date: args.end_date,
           focus: args.focus ?? null,
+          notes: args.notes ?? null,
+          target_weekly_hours: args.target_weekly_hours ?? null,
+          recovery_guidance: args.recovery_guidance ?? null,
           color: args.color ?? null,
           block_order: order,
         });
@@ -2278,7 +2301,7 @@ export function buildServer(athleteId: number): McpServer {
       title: "Update a training block",
       outputSchema: { block: z.unknown() },
       description:
-        "Update a training block (yours only). Only provided fields change; pass `focus`/`color` as null to clear.",
+        "Update a training block (yours only). Only provided fields change; pass an optional field as null to clear it. `focus` is a short primary emphasis; `notes` holds broader rationale/coaching context; `target_weekly_hours` is flexible volume guidance (e.g. '14–17 hours, with occasional larger weeks'); `recovery_guidance` describes recovery cadence (e.g. 'Reduce volume every fourth week').",
       inputSchema: {
         block_id: z.number().int().describe("Block id from get_training_calendar"),
         name: z.string().optional(),
@@ -2286,6 +2309,9 @@ export function buildServer(athleteId: number): McpServer {
         start_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
         end_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
         focus: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+        target_weekly_hours: z.string().nullable().optional(),
+        recovery_guidance: z.string().nullable().optional(),
         color: z.string().nullable().optional(),
         block_order: z.number().int().min(0).optional(),
       },
@@ -2314,6 +2340,15 @@ export function buildServer(athleteId: number): McpServer {
           start_date,
           end_date,
           focus: args.focus === undefined ? existing.focus : args.focus,
+          notes: args.notes === undefined ? existing.notes : args.notes,
+          target_weekly_hours:
+            args.target_weekly_hours === undefined
+              ? existing.target_weekly_hours
+              : args.target_weekly_hours,
+          recovery_guidance:
+            args.recovery_guidance === undefined
+              ? existing.recovery_guidance
+              : args.recovery_guidance,
           color: args.color === undefined ? existing.color : args.color,
           block_order:
             args.block_order === undefined ? existing.block_order : args.block_order,

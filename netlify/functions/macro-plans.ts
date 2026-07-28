@@ -45,6 +45,9 @@ function serializeBlock(b: DbTrainingBlock) {
     start_date: formatDateString(b.start_date),
     end_date: formatDateString(b.end_date),
     focus: b.focus,
+    notes: b.notes,
+    target_weekly_hours: b.target_weekly_hours,
+    recovery_guidance: b.recovery_guidance,
     color: b.color,
     block_order: b.block_order,
   };
@@ -118,6 +121,9 @@ export default async function handler(request: Request, _context: Context) {
           start_date: v.start_date ?? formatDateString(existing.start_date)!,
           end_date: v.end_date ?? formatDateString(existing.end_date)!,
           focus: body.focus === undefined ? existing.focus : (v.focus ?? null),
+          notes: existing.notes,
+          target_weekly_hours: existing.target_weekly_hours,
+          recovery_guidance: existing.recovery_guidance,
           color: body.color === undefined ? existing.color : (v.color ?? null),
           block_order:
             v.block_order === undefined ? existing.block_order : v.block_order,
@@ -168,6 +174,9 @@ export default async function handler(request: Request, _context: Context) {
           start_date: v.start_date!,
           end_date: v.end_date!,
           focus: v.focus ?? null,
+          notes: null,
+          target_weekly_hours: null,
+          recovery_guidance: null,
           color: v.color ?? null,
           block_order: order,
         });
