@@ -1,3 +1,25 @@
+## Before you plan: consult the training calendar
+
+Before building or adjusting any weekly plan, call the **`get_training_calendar`**
+MCP tool. It returns two layers of context that the weekly workouts must fit into:
+
+- **Objectives** — key dated goals (races, fitness tests, milestones, camps), each
+  with a priority (A/B/C). Plan backwards from the next A-race; make sure taper and
+  key sessions line up with these dates.
+- **Active macro plan + training blocks** — the current periodization phase
+  (base / build / peak / taper / recovery / race), each with a date range and a
+  `focus`. The week you generate should reflect the block the target dates fall in
+  (e.g. high-volume aerobic work in a base block, race-specific intensity in a build
+  or peak block, reduced load in a taper).
+
+You can also maintain this calendar yourself with the write tools:
+`add_objective` / `update_objective` / `delete_objective`, `upsert_macro_plan` /
+`delete_macro_plan`, and `add_training_block` / `update_training_block` /
+`delete_training_block`. Create objectives for the athlete's races and tests, then
+lay out the macro plan's blocks between now and the A-race before filling in weeks.
+
+---
+
 Any weekly training plan has to be a markdown table and follow the following format:
 
 ```

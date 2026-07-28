@@ -116,6 +116,172 @@ enum DashyAPI {
         ])
     }
 
+    // MARK: - Objectives (calendar)
+
+    static func objectives(from: String? = nil, to: String? = nil) async throws -> ObjectivesResponse {
+        var query: [URLQueryItem] = []
+        if let from { query.append(URLQueryItem(name: "from", value: from)) }
+        if let to { query.append(URLQueryItem(name: "to", value: to)) }
+        return try await APIClient.shared.get("objectives", query: query)
+    }
+
+    @discardableResult
+    static func createObjective(
+        title: String,
+        objectiveType: String,
+        startDate: String,
+        endDate: String?,
+        priority: String?,
+        notes: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "title": title,
+            "objective_type": objectiveType,
+            "start_date": startDate,
+            "end_date": endDate ?? NSNull(),
+            "priority": priority ?? NSNull(),
+            "notes": notes ?? NSNull(),
+        ])
+        return try await APIClient.shared.post("objectives", body: body)
+    }
+
+    @discardableResult
+    static func updateObjective(
+        id: Int,
+        title: String,
+        objectiveType: String,
+        startDate: String,
+        endDate: String?,
+        priority: String?,
+        notes: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "title": title,
+            "objective_type": objectiveType,
+            "start_date": startDate,
+            "end_date": endDate ?? NSNull(),
+            "priority": priority ?? NSNull(),
+            "notes": notes ?? NSNull(),
+        ])
+        return try await APIClient.shared.patch("objectives/\(id)", body: body)
+    }
+
+    @discardableResult
+    static func deleteObjective(id: Int) async throws -> SuccessResponse {
+        try await APIClient.shared.delete("objectives/\(id)")
+    }
+
+    // MARK: - Macro plans + training blocks
+
+    static func macroPlans() async throws -> MacroPlansResponse {
+        try await APIClient.shared.get("macro-plans")
+    }
+
+    static func activeMacroPlan() async throws -> MacroPlanResponse {
+        try await APIClient.shared.get("macro-plans", query: [
+            URLQueryItem(name: "active", value: "1")
+        ])
+    }
+
+    @discardableResult
+    static func createMacroPlan(
+        name: String,
+        startDate: String,
+        endDate: String,
+        goal: String?,
+        goalObjectiveId: Int?,
+        isActive: Bool,
+        notes: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "name": name,
+            "start_date": startDate,
+            "end_date": endDate,
+            "goal": goal ?? NSNull(),
+            "goal_objective_id": goalObjectiveId ?? NSNull(),
+            "is_active": isActive,
+            "notes": notes ?? NSNull(),
+        ])
+        return try await APIClient.shared.post("macro-plans", body: body)
+    }
+
+    @discardableResult
+    static func updateMacroPlan(
+        id: Int,
+        name: String,
+        startDate: String,
+        endDate: String,
+        goal: String?,
+        goalObjectiveId: Int?,
+        isActive: Bool,
+        notes: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "name": name,
+            "start_date": startDate,
+            "end_date": endDate,
+            "goal": goal ?? NSNull(),
+            "goal_objective_id": goalObjectiveId ?? NSNull(),
+            "is_active": isActive,
+            "notes": notes ?? NSNull(),
+        ])
+        return try await APIClient.shared.patch("macro-plans/\(id)", body: body)
+    }
+
+    @discardableResult
+    static func setActiveMacroPlan(id: Int) async throws -> SuccessResponse {
+        let body = try jsonBody(["is_active": true])
+        return try await APIClient.shared.patch("macro-plans/\(id)", body: body)
+    }
+
+    @discardableResult
+    static func deleteMacroPlan(id: Int) async throws -> SuccessResponse {
+        try await APIClient.shared.delete("macro-plans/\(id)")
+    }
+
+    @discardableResult
+    static func createBlock(
+        planId: Int,
+        name: String,
+        blockType: String,
+        startDate: String,
+        endDate: String,
+        focus: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "name": name,
+            "block_type": blockType,
+            "start_date": startDate,
+            "end_date": endDate,
+            "focus": focus ?? NSNull(),
+        ])
+        return try await APIClient.shared.post("macro-plans/\(planId)/blocks", body: body)
+    }
+
+    @discardableResult
+    static func updateBlock(
+        blockId: Int,
+        name: String,
+        blockType: String,
+        startDate: String,
+        endDate: String,
+        focus: String?
+    ) async throws -> SuccessResponse {
+        let body = try jsonBody([
+            "name": name,
+            "block_type": blockType,
+            "start_date": startDate,
+            "end_date": endDate,
+            "focus": focus ?? NSNull(),
+        ])
+        return try await APIClient.shared.patch("macro-plans/blocks/\(blockId)", body: body)
+    }
+
+    @discardableResult
+    static func deleteBlock(blockId: Int) async throws -> SuccessResponse {
+        try await APIClient.shared.delete("macro-plans/blocks/\(blockId)")
+    }
+
     /// Encodes a dictionary (with `NSNull()` for explicit nulls) to JSON Data.
     private static func jsonBody(_ dict: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: dict, options: [])

@@ -54,6 +54,14 @@ export function AuthButton() {
             Training Plan
           </Link>
           <Link
+            to="/calendar"
+            className={`${styles.navLink} ${
+              location.pathname === "/calendar" ? styles.navLinkActive : ""
+            }`}
+          >
+            Calendar
+          </Link>
+          <Link
             to="/settings"
             className={`${styles.navLink} ${
               location.pathname === "/settings" ? styles.navLinkActive : ""

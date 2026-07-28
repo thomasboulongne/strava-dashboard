@@ -21,9 +21,29 @@ import {
   linkActivityToWorkout,
   unlinkActivityFromWorkout,
   upsertWeeklyReport,
+  getObjectives,
+  getObjectiveById,
+  createObjective,
+  updateObjective,
+  deleteObjectiveById,
+  getMacroPlans,
+  getMacroPlanById,
+  getActiveMacroPlan,
+  getTrainingBlocksForPlan,
+  createMacroPlan,
+  updateMacroPlan,
+  deleteMacroPlanById,
+  deactivateOtherMacroPlans,
+  getTrainingBlockById,
+  createTrainingBlock,
+  updateTrainingBlock,
+  deleteTrainingBlockById,
   type DbActivity,
   type DbAthleteZones,
   type DbTrainingWorkout,
+  type DbObjective,
+  type DbMacroPlan,
+  type DbTrainingBlock,
 } from "./db.js";
 import { getValidAccessToken } from "./strava-api.js";
 import { enrichActivity } from "./enrich.js";
@@ -484,6 +504,65 @@ function addDays(dateStr: string, days: number): string {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Format a DATE column (Date or string) as YYYY-MM-DD, mirroring serializeWorkout.
+function fmtDate(d: Date | string | null): string | null {
+  if (d === null) return null;
+  return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+}
+
+// --- Objective / macro-plan / block serializers ------------------------------
+
+function serializeObjective(o: DbObjective) {
+  return {
+    id: o.id,
+    title: o.title,
+    objective_type: o.objective_type,
+    priority: o.priority,
+    start_date: fmtDate(o.start_date),
+    end_date: fmtDate(o.end_date),
+    notes: o.notes,
+  };
+}
+
+function serializeBlock(b: DbTrainingBlock) {
+  return {
+    id: b.id,
+    macro_plan_id: b.macro_plan_id,
+    name: b.name,
+    block_type: b.block_type,
+    start_date: fmtDate(b.start_date),
+    end_date: fmtDate(b.end_date),
+    focus: b.focus,
+    color: b.color,
+    block_order: b.block_order,
+  };
+}
+
+function serializePlan(p: DbMacroPlan, blocks?: DbTrainingBlock[]) {
+  return {
+    id: p.id,
+    name: p.name,
+    goal: p.goal,
+    goal_objective_id: p.goal_objective_id,
+    start_date: fmtDate(p.start_date),
+    end_date: fmtDate(p.end_date),
+    is_active: p.is_active,
+    notes: p.notes,
+    ...(blocks ? { blocks: blocks.map(serializeBlock) } : {}),
+  };
+}
+
+const OBJECTIVE_TYPES = ["race", "test", "milestone", "camp", "note"] as const;
+const PRIORITIES = ["A", "B", "C"] as const;
+const BLOCK_TYPES = [
+  "base",
+  "build",
+  "peak",
+  "taper",
+  "recovery",
+  "race",
+] as const;
 
 // --- Server ------------------------------------------------------------------
 
@@ -1784,6 +1863,456 @@ export function buildServer(athleteId: number): McpServer {
           title: report.title,
           saved: true,
         });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Training calendar: objectives + macro plan ---------------------------
+
+  server.registerTool(
+    "get_training_calendar",
+    {
+      title: "Get training calendar (objectives + macro plan)",
+      outputSchema: {
+        objectives: z.array(z.unknown()),
+        active_plan: z.unknown().nullable(),
+      },
+      description:
+        "Load the athlete's planning context: their objectives (key dated goals like races, tests, milestones, camps) optionally filtered to a date range, PLUS the currently-active macro plan and its ordered training blocks (periodization phases: base/build/peak/taper/recovery/race). Call this FIRST when building or adjusting a training plan so weekly workouts fit the current block's focus and the upcoming objectives. `active_plan` is null if none is set.",
+      inputSchema: {
+        from: z
+          .string()
+          .optional()
+          .describe("Only objectives on/after this ISO date (YYYY-MM-DD)"),
+        to: z
+          .string()
+          .optional()
+          .describe("Only objectives on/before this ISO date (YYYY-MM-DD)"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ from, to }) => {
+      try {
+        if (from && !DATE_RE.test(from)) return errorResult("from must be YYYY-MM-DD");
+        if (to && !DATE_RE.test(to)) return errorResult("to must be YYYY-MM-DD");
+        const objectives = await getObjectives(athleteId, from ?? null, to ?? null);
+        const plan = await getActiveMacroPlan(athleteId);
+        const blocks = plan ? await getTrainingBlocksForPlan(plan.id) : [];
+        return textResult({
+          objectives: objectives.map(serializeObjective),
+          active_plan: plan ? serializePlan(plan, blocks) : null,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Objectives: write ----------------------------------------------------
+
+  server.registerTool(
+    "add_objective",
+    {
+      title: "Add an objective",
+      outputSchema: { objective: z.unknown() },
+      description:
+        "Create a key dated goal on the athlete's calendar (a race, fitness test, milestone, training camp, or note). Set `priority` A/B/C for races. Use `end_date` for multi-day objectives (a race weekend or camp).",
+      inputSchema: {
+        title: z.string().describe("Short name, e.g. 'Paris Marathon'"),
+        objective_type: z
+          .enum(OBJECTIVE_TYPES)
+          .describe("race | test | milestone | camp | note"),
+        start_date: z.string().describe("ISO date (YYYY-MM-DD)"),
+        end_date: z
+          .string()
+          .optional()
+          .describe("ISO end date for multi-day objectives (YYYY-MM-DD)"),
+        priority: z
+          .enum(PRIORITIES)
+          .optional()
+          .describe("A/B/C priority, mainly for races"),
+        notes: z.string().optional().describe("Free-text detail"),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async ({ title, objective_type, start_date, end_date, priority, notes }) => {
+      try {
+        if (!DATE_RE.test(start_date)) return errorResult("start_date must be YYYY-MM-DD");
+        if (end_date && !DATE_RE.test(end_date)) return errorResult("end_date must be YYYY-MM-DD");
+        if (end_date && end_date < start_date) {
+          return errorResult("end_date must be on or after start_date");
+        }
+        const created = await createObjective({
+          athlete_id: athleteId,
+          title,
+          objective_type,
+          priority: priority ?? null,
+          start_date,
+          end_date: end_date ?? null,
+          notes: notes ?? null,
+        });
+        return textResult({ objective: serializeObjective(created) });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_objective",
+    {
+      title: "Update an objective",
+      outputSchema: { objective: z.unknown() },
+      description:
+        "Update fields of an existing objective (yours only). Only provided fields change. Pass `end_date`/`priority`/`notes` as null to clear them.",
+      inputSchema: {
+        objective_id: z.number().int().describe("Objective id from get_training_calendar"),
+        title: z.string().optional(),
+        objective_type: z.enum(OBJECTIVE_TYPES).optional(),
+        start_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
+        end_date: z.string().nullable().optional().describe("ISO date or null to clear"),
+        priority: z.enum(PRIORITIES).nullable().optional(),
+        notes: z.string().nullable().optional(),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async (args) => {
+      try {
+        const existing = await getObjectiveById(args.objective_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Objective ${args.objective_id} not found`);
+        }
+        if (args.start_date && !DATE_RE.test(args.start_date)) {
+          return errorResult("start_date must be YYYY-MM-DD");
+        }
+        if (args.end_date && !DATE_RE.test(args.end_date)) {
+          return errorResult("end_date must be YYYY-MM-DD");
+        }
+        const start_date = args.start_date ?? fmtDate(existing.start_date)!;
+        const end_date =
+          args.end_date === undefined ? fmtDate(existing.end_date) : args.end_date;
+        if (end_date && end_date < start_date) {
+          return errorResult("end_date must be on or after start_date");
+        }
+        const updated = await updateObjective(args.objective_id, {
+          title: args.title ?? existing.title,
+          objective_type: args.objective_type ?? existing.objective_type,
+          priority:
+            args.priority === undefined ? existing.priority : args.priority,
+          start_date,
+          end_date,
+          notes: args.notes === undefined ? existing.notes : args.notes,
+        });
+        return textResult({ objective: updated ? serializeObjective(updated) : null });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_objective",
+    {
+      title: "Delete an objective",
+      outputSchema: { deleted: z.boolean() },
+      description:
+        "Delete an objective (yours only). Destructive; use with care. If a macro plan references it as its goal, that link is cleared automatically.",
+      inputSchema: {
+        objective_id: z.number().int().describe("Objective id to delete"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ objective_id }) => {
+      try {
+        const existing = await getObjectiveById(objective_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Objective ${objective_id} not found`);
+        }
+        await deleteObjectiveById(objective_id);
+        return textResult({ deleted: true });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Macro plans: read + write --------------------------------------------
+
+  server.registerTool(
+    "get_macro_plans",
+    {
+      title: "List macro plans",
+      outputSchema: { plans: z.array(z.unknown()) },
+      description:
+        "List all of the athlete's macro (season) plans, active one first. Does not include the blocks; use get_training_calendar for the active plan's blocks or get the plan by id via upsert flow.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        const plans = await getMacroPlans(athleteId);
+        return textResult({ plans: plans.map((p) => serializePlan(p)) });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "upsert_macro_plan",
+    {
+      title: "Create or update a macro plan",
+      outputSchema: { plan: z.unknown() },
+      description:
+        "Create a new macro (season) plan, or update an existing one when `id` is provided. A macro plan is a named container spanning `start_date`..`end_date`, optionally tied to a goal objective (its A-race) via `goal_objective_id`. Setting `is_active` true makes this the followed plan and deactivates the others. Add periodization phases with add_training_block.",
+      inputSchema: {
+        id: z.number().int().optional().describe("Existing plan id to update; omit to create"),
+        name: z.string().optional().describe("Plan name, e.g. '2026 Marathon build'"),
+        goal: z.string().nullable().optional().describe("Free-text season goal"),
+        goal_objective_id: z
+          .number()
+          .int()
+          .nullable()
+          .optional()
+          .describe("Objective id of the goal race (must be yours)"),
+        start_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
+        end_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
+        is_active: z.boolean().optional().describe("Make this the followed plan"),
+        notes: z.string().nullable().optional(),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async (args) => {
+      try {
+        // Validate goal objective ownership if provided.
+        if (
+          args.goal_objective_id !== undefined &&
+          args.goal_objective_id !== null
+        ) {
+          const obj = await getObjectiveById(args.goal_objective_id);
+          if (!obj || Number(obj.athlete_id) !== athleteId) {
+            return errorResult("goal_objective_id does not reference your objective");
+          }
+        }
+
+        if (args.id !== undefined) {
+          const existing = await getMacroPlanById(args.id);
+          if (!existing || Number(existing.athlete_id) !== athleteId) {
+            return errorResult(`Macro plan ${args.id} not found`);
+          }
+          if (args.start_date && !DATE_RE.test(args.start_date)) {
+            return errorResult("start_date must be YYYY-MM-DD");
+          }
+          if (args.end_date && !DATE_RE.test(args.end_date)) {
+            return errorResult("end_date must be YYYY-MM-DD");
+          }
+          const start_date = args.start_date ?? fmtDate(existing.start_date)!;
+          const end_date = args.end_date ?? fmtDate(existing.end_date)!;
+          if (end_date < start_date) {
+            return errorResult("end_date must be on or after start_date");
+          }
+          const isActive = args.is_active === undefined ? existing.is_active : args.is_active;
+          const updated = await updateMacroPlan(args.id, {
+            name: args.name ?? existing.name,
+            goal: args.goal === undefined ? existing.goal : args.goal,
+            goal_objective_id:
+              args.goal_objective_id === undefined
+                ? existing.goal_objective_id
+                : args.goal_objective_id,
+            start_date,
+            end_date,
+            is_active: isActive,
+            notes: args.notes === undefined ? existing.notes : args.notes,
+          });
+          if (isActive) await deactivateOtherMacroPlans(athleteId, args.id);
+          return textResult({ plan: updated ? serializePlan(updated) : null });
+        }
+
+        // Create path: name + dates required.
+        if (!args.name) return errorResult("name is required to create a plan");
+        if (!args.start_date || !DATE_RE.test(args.start_date)) {
+          return errorResult("start_date (YYYY-MM-DD) is required to create a plan");
+        }
+        if (!args.end_date || !DATE_RE.test(args.end_date)) {
+          return errorResult("end_date (YYYY-MM-DD) is required to create a plan");
+        }
+        if (args.end_date < args.start_date) {
+          return errorResult("end_date must be on or after start_date");
+        }
+        const isActive = args.is_active ?? true;
+        const created = await createMacroPlan({
+          athlete_id: athleteId,
+          name: args.name,
+          goal: args.goal ?? null,
+          goal_objective_id: args.goal_objective_id ?? null,
+          start_date: args.start_date,
+          end_date: args.end_date,
+          is_active: isActive,
+          notes: args.notes ?? null,
+        });
+        if (isActive) await deactivateOtherMacroPlans(athleteId, created.id);
+        return textResult({ plan: serializePlan(created) });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_macro_plan",
+    {
+      title: "Delete a macro plan",
+      outputSchema: { deleted: z.boolean() },
+      description:
+        "Delete a macro plan and all of its training blocks (yours only). Destructive; use with care.",
+      inputSchema: {
+        plan_id: z.number().int().describe("Macro plan id to delete"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ plan_id }) => {
+      try {
+        const existing = await getMacroPlanById(plan_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Macro plan ${plan_id} not found`);
+        }
+        await deleteMacroPlanById(plan_id);
+        return textResult({ deleted: true });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  // --- Training blocks: write -----------------------------------------------
+
+  server.registerTool(
+    "add_training_block",
+    {
+      title: "Add a training block",
+      outputSchema: { block: z.unknown() },
+      description:
+        "Add a periodization phase to a macro plan (base, build, peak, taper, recovery, or race) spanning `start_date`..`end_date`. `focus` describes what to emphasize. Blocks are ordered; omit `block_order` to append.",
+      inputSchema: {
+        macro_plan_id: z.number().int().describe("Plan id to add the block to"),
+        name: z.string().describe("Block name, e.g. 'Base 1'"),
+        block_type: z.enum(BLOCK_TYPES).describe("base | build | peak | taper | recovery | race"),
+        start_date: z.string().describe("ISO date (YYYY-MM-DD)"),
+        end_date: z.string().describe("ISO date (YYYY-MM-DD)"),
+        focus: z.string().optional().describe("What to emphasize this block"),
+        color: z.string().optional().describe("Optional UI color hint"),
+        block_order: z.number().int().min(0).optional(),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async (args) => {
+      try {
+        const plan = await getMacroPlanById(args.macro_plan_id);
+        if (!plan || Number(plan.athlete_id) !== athleteId) {
+          return errorResult(`Macro plan ${args.macro_plan_id} not found`);
+        }
+        if (!DATE_RE.test(args.start_date)) return errorResult("start_date must be YYYY-MM-DD");
+        if (!DATE_RE.test(args.end_date)) return errorResult("end_date must be YYYY-MM-DD");
+        if (args.end_date < args.start_date) {
+          return errorResult("end_date must be on or after start_date");
+        }
+        let order = args.block_order;
+        if (order === undefined) {
+          const existing = await getTrainingBlocksForPlan(args.macro_plan_id);
+          order = existing.length;
+        }
+        const created = await createTrainingBlock({
+          athlete_id: athleteId,
+          macro_plan_id: args.macro_plan_id,
+          name: args.name,
+          block_type: args.block_type,
+          start_date: args.start_date,
+          end_date: args.end_date,
+          focus: args.focus ?? null,
+          color: args.color ?? null,
+          block_order: order,
+        });
+        return textResult({ block: serializeBlock(created) });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_training_block",
+    {
+      title: "Update a training block",
+      outputSchema: { block: z.unknown() },
+      description:
+        "Update a training block (yours only). Only provided fields change; pass `focus`/`color` as null to clear.",
+      inputSchema: {
+        block_id: z.number().int().describe("Block id from get_training_calendar"),
+        name: z.string().optional(),
+        block_type: z.enum(BLOCK_TYPES).optional(),
+        start_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
+        end_date: z.string().optional().describe("ISO date (YYYY-MM-DD)"),
+        focus: z.string().nullable().optional(),
+        color: z.string().nullable().optional(),
+        block_order: z.number().int().min(0).optional(),
+      },
+      annotations: { readOnlyHint: false },
+    },
+    async (args) => {
+      try {
+        const existing = await getTrainingBlockById(args.block_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Block ${args.block_id} not found`);
+        }
+        if (args.start_date && !DATE_RE.test(args.start_date)) {
+          return errorResult("start_date must be YYYY-MM-DD");
+        }
+        if (args.end_date && !DATE_RE.test(args.end_date)) {
+          return errorResult("end_date must be YYYY-MM-DD");
+        }
+        const start_date = args.start_date ?? fmtDate(existing.start_date)!;
+        const end_date = args.end_date ?? fmtDate(existing.end_date)!;
+        if (end_date < start_date) {
+          return errorResult("end_date must be on or after start_date");
+        }
+        const updated = await updateTrainingBlock(args.block_id, {
+          name: args.name ?? existing.name,
+          block_type: args.block_type ?? existing.block_type,
+          start_date,
+          end_date,
+          focus: args.focus === undefined ? existing.focus : args.focus,
+          color: args.color === undefined ? existing.color : args.color,
+          block_order:
+            args.block_order === undefined ? existing.block_order : args.block_order,
+        });
+        return textResult({ block: updated ? serializeBlock(updated) : null });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_training_block",
+    {
+      title: "Delete a training block",
+      outputSchema: { deleted: z.boolean() },
+      description: "Delete a training block (yours only). Destructive; use with care.",
+      inputSchema: {
+        block_id: z.number().int().describe("Block id to delete"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+    },
+    async ({ block_id }) => {
+      try {
+        const existing = await getTrainingBlockById(block_id);
+        if (!existing || Number(existing.athlete_id) !== athleteId) {
+          return errorResult(`Block ${block_id} not found`);
+        }
+        await deleteTrainingBlockById(block_id);
+        return textResult({ deleted: true });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : "Unknown error");
       }

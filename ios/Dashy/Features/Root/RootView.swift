@@ -52,6 +52,9 @@ struct MainTabView: View {
             TrainingPlanView()
                 .tabItem { Label("Plan", systemImage: "calendar") }
 
+            CalendarView()
+                .tabItem { Label("Calendar", systemImage: "flag.checkered") }
+
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
